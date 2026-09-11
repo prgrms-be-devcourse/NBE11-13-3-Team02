@@ -1,0 +1,16 @@
+.DS_Store
+.idea/
+*.iml
+
+# Gradle
+.gradle/
+build/
+
+# Node
+node_modules/
+dist/
+
+# 환경설정 / 비밀번호
+.env
+.env.*
+!.env.example
