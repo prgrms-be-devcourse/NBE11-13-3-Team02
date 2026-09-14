@@ -1,0 +1,44 @@
+import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
+from anthropic import AsyncAnthropic
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from app.api import chat
+from app.config import get_settings
+from app.spring_client import SpringClient
+
+logging.basicConfig(level=logging.INFO)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    settings = get_settings()
+    app.state.spring_client = SpringClient(
+        base_url=settings.spring_base_url,
+        timeout=settings.spring_timeout_seconds,
+    )
+    app.state.anthropic = AsyncAnthropic(api_key=settings.anthropic_api_key)
+    yield
+    await app.state.spring_client.aclose()
+    await app.state.anthropic.close()
+
+
+app = FastAPI(title="가치사 챗봇 서버", version="0.1.0", lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=get_settings().cors_origins,
+    allow_credentials=True,
+    allow_methods=["GET", "POST"],
+    allow_headers=["Authorization", "Content-Type"],
+)
+
+app.include_router(chat.router)
+
+
+@app.get("/health")
+async def health() -> dict:
+    return {"status": "ok"}

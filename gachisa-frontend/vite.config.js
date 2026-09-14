@@ -16,6 +16,11 @@ export default defineConfig({
         target: 'http://localhost:8080',
         changeOrigin: true,
       },
+      // 챗봇은 별도 FastAPI 서버(8000). SSE 스트림을 Spring을 거치지 않고 직접 받는다.
+      '/chat': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
     },
   },
 })
