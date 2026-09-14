@@ -108,9 +108,9 @@ uv run python scripts/dev_token.py 7 "안세호" USER
 
 - [x] 1단계: JWT 검증, SSE 스트리밍, Spring 토큰 전달
 - [x] 2단계: LLM 연결 + 도구 3개(공동구매 검색, 주문 조회, 배송 조회)
+- [x] 프론트엔드 챗 위젯 (`gachisa-frontend/src/components/ChatWidget.jsx`)
 - [ ] 3단계: FAQ 문서 RAG 도구 추가
 - [ ] 4단계: 평가셋 50문항으로 도구 라우팅 정확도 측정
-- [ ] 프론트엔드 챗 위젯
 
-**아직 실제 Anthropic API로 검증하지 않았다.** API 키가 없어 도구 루프와 SSE는
-스텁으로만 테스트했다. 키를 넣고 첫 대화를 돌려보는 것이 다음 확인 사항이다.
+**아직 실제 Anthropic API로 검증하지 않았다.** 에이전트 루프·도구 호출·SSE·위젯은
+가짜 LLM으로 브라우저까지 확인했지만, 실제 모델 응답은 API 키를 넣어야 확인된다.

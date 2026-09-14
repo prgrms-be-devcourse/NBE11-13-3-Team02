@@ -118,6 +118,25 @@ def test_도구를_쓰면_tool_이벤트가_먼저_나간다(client, make_token)
     assert events[names.index("tool")][1] == {"name": "get_my_orders"}
 
 
+def test_conversationId는_camelCase_키로_받는다(client, make_token):
+    fake = FakeAnthropic(
+        [FakeStream([text_delta("네")], final_message([text_block("네")], "end_turn"))]
+    )
+    app.dependency_overrides[get_anthropic_client] = lambda: fake
+
+    try:
+        response = client.post(
+            "/chat/stream",
+            json={"message": "안녕", "conversationId": "conv-1"},
+            headers={"Authorization": f"Bearer {make_token()}"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    events = _parse_events(response.text)
+    assert events[0][1]["conversationId"] == "conv-1"
+
+
 def test_history_역할은_user_assistant만_허용한다(client, make_token):
     response = client.post(
         "/chat/stream",

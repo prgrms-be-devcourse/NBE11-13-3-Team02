@@ -8,7 +8,8 @@ from typing import Annotated, Literal
 from anthropic import AsyncAnthropic
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
+from pydantic.alias_generators import to_camel
 
 from app.agent import run_agent
 from app.config import Settings, get_settings
@@ -34,6 +35,9 @@ class ChatMessage(BaseModel):
 
 
 class ChatRequest(BaseModel):
+    # 프로젝트의 다른 API와 맞춰 요청/응답 JSON 키를 camelCase로 통일한다.
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
     message: str = Field(min_length=1, max_length=2000)
     conversation_id: str | None = None
     # 대화 기록은 클라이언트가 보낸다(서버 무상태). 도구는 언제나 토큰의 주인 데이터만
