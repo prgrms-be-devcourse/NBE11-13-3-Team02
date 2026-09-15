@@ -17,7 +17,12 @@ def tool_use_block(tool_id: str, name: str, args: dict) -> SimpleNamespace:
 
 
 def final_message(content: list, stop_reason: str) -> SimpleNamespace:
-    return SimpleNamespace(content=content, stop_reason=stop_reason, stop_details=None)
+    return SimpleNamespace(
+        content=content,
+        stop_reason=stop_reason,
+        stop_details=None,
+        usage=SimpleNamespace(input_tokens=100, output_tokens=20),
+    )
 
 
 class FakeStream:

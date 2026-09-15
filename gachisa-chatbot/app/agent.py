@@ -63,6 +63,13 @@ async def run_agent(
                     yield "token", {"text": event.delta.text}
             final = await stream.get_final_message()
 
+        logger.info(
+            "토큰 사용 model=%s in=%s out=%s",
+            settings.anthropic_model,
+            final.usage.input_tokens,
+            final.usage.output_tokens,
+        )
+
         if final.stop_reason == "refusal":
             logger.warning("모델이 응답을 거부했습니다: %s", final.stop_details)
             yield "error", {"message": "이 요청에는 답변할 수 없습니다."}
