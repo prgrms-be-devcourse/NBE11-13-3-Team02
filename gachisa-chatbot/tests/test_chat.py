@@ -6,12 +6,18 @@ from fastapi.testclient import TestClient
 
 from app.api.chat import get_genai_client
 from app.main import app
+from app.rag import FaqIndex
 from app.spring_client import SpringClient, get_spring_client
-from tests.fakes import FakeGenai, call_turn, text_turn
+from tests.fakes import FakeFaq, FakeGenai, call_turn, text_turn
 
 
 @pytest.fixture
-def client():
+def client(monkeypatch):
+    # 앱 기동(lifespan)이 FAQ 색인을 만들며 임베딩 API를 호출하지 않도록 막는다.
+    async def fake_build(cls, client, directory=None):
+        return FakeFaq()
+
+    monkeypatch.setattr(FaqIndex, "build", classmethod(fake_build))
     with TestClient(app) as test_client:
         yield test_client
 

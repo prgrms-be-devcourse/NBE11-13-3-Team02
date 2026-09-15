@@ -3,10 +3,30 @@ from typing import Any
 
 import httpx
 
+from app.rag import FaqIndex
 from app.security import CurrentUser
 from app.spring_client import SpringClient
 
 TOOL_DEFINITIONS: list[dict[str, Any]] = [
+    {
+        "name": "search_faq",
+        "description": (
+            "서비스 이용 방법과 정책을 담은 FAQ 문서를 검색한다. "
+            "'공동구매가 뭐야', '환불 언제 돼', '배송지 언제 등록해', '취소할 수 있어?'처럼 "
+            "특정 주문이나 상품이 아니라 일반적인 규칙을 묻는 질문에 사용한다. "
+            "결과의 relevance가 낮으면 관련 없는 문서이므로 근거로 쓰지 말 것."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "검색할 내용. 사용자의 질문을 그대로 넣어도 된다.",
+                }
+            },
+            "required": ["query"],
+        },
+    },
     {
         "name": "search_group_buys",
         "description": (
@@ -156,9 +176,16 @@ _HANDLERS = {
 
 
 async def execute_tool(
-    name: str, args: dict[str, Any], spring: SpringClient, user: CurrentUser
+    name: str,
+    args: dict[str, Any],
+    spring: SpringClient,
+    user: CurrentUser,
+    faq: FaqIndex,
 ) -> dict[str, Any]:
     """도구를 실행하고 모델에 돌려줄 결과 dict를 만든다. 실패는 error 키로 알린다."""
+    if name == "search_faq":
+        return {"result": await faq.search(str(args.get("query", "")))}
+
     handler = _HANDLERS.get(name)
     if handler is None:
         return {"error": f"알 수 없는 도구입니다: {name}"}

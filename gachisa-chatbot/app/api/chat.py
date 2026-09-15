@@ -13,6 +13,7 @@ from pydantic.alias_generators import to_camel
 
 from app.agent import run_agent
 from app.config import Settings, get_settings
+from app.rag import FaqIndex
 from app.security import CurrentUserDep
 from app.spring_client import SpringClientDep
 
@@ -26,6 +27,13 @@ def get_genai_client(request: Request) -> genai.Client:
 
 
 GenaiDep = Annotated[genai.Client, Depends(get_genai_client)]
+
+
+def get_faq_index(request: Request) -> FaqIndex:
+    return request.app.state.faq
+
+
+FaqDep = Annotated[FaqIndex, Depends(get_faq_index)]
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 
 
@@ -56,6 +64,7 @@ async def stream_chat(
     user: CurrentUserDep,
     spring: SpringClientDep,
     client: GenaiDep,
+    faq: FaqDep,
     settings: SettingsDep,
 ) -> StreamingResponse:
     conversation_id = payload.conversation_id or str(uuid.uuid4())
@@ -68,6 +77,7 @@ async def stream_chat(
                 settings=settings,
                 spring=spring,
                 user=user,
+                faq=faq,
                 message=payload.message,
                 history=[m.model_dump() for m in payload.history],
             )

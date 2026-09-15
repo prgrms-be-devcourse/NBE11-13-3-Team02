@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import chat
 from app.config import get_settings
+from app.rag import FaqIndex
 from app.spring_client import SpringClient
 
 logging.basicConfig(level=logging.INFO)
@@ -21,6 +22,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         timeout=settings.spring_timeout_seconds,
     )
     app.state.genai = genai.Client(api_key=settings.gemini_api_key)
+    app.state.faq = await FaqIndex.build(app.state.genai)
     yield
     await app.state.spring_client.aclose()
 

@@ -7,7 +7,7 @@ from app.agent import MAX_TURNS, run_agent
 from app.config import get_settings
 from app.security import CurrentUser
 from app.spring_client import SpringClient
-from tests.fakes import FakeGenai, call_part, call_turn, text_turn, turn
+from tests.fakes import FakeFaq, FakeGenai, call_part, call_turn, text_turn, turn
 
 USER = CurrentUser(user_id=7, name="안세호", role="ROLE_BUYER", access_token="tok-abc")
 
@@ -20,13 +20,14 @@ def spring_stub(handler) -> SpringClient:
     )
 
 
-async def collect(client, spring, message="안녕", history=None):
+async def collect(client, spring, message="안녕", history=None, faq=None):
     events = []
     async for event, data in run_agent(
         client=client,
         settings=get_settings(),
         spring=spring,
         user=USER,
+        faq=faq or FakeFaq(),
         message=message,
         history=history or [],
     ):
@@ -215,7 +216,7 @@ async def test_요청에_모델과_도구_선언이_실린다(orders_spring):
     await collect(client, orders_spring)
 
     call = client.calls[0]
-    assert call["model"] == "gemini-3.8-flash"
+    assert call["model"] == "gemini-3.5-flash"
     declared = {f.name for t in call["config"].tools for f in t.function_declarations}
-    assert declared == {"search_group_buys", "get_my_orders", "get_order_delivery"}
+    assert declared == {"search_faq", "search_group_buys", "get_my_orders", "get_order_delivery"}
     assert "가치사" in call["config"].system_instruction

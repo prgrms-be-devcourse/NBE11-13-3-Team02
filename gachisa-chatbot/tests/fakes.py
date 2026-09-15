@@ -60,3 +60,21 @@ class FakeGenai:
         if not self._turns:
             raise AssertionError("예상보다 많은 API 호출이 발생했습니다.")
         return _AsyncChunks(self._turns.pop(0))
+
+
+class FakeFaq:
+    """FAQ 인덱스 스텁. 테스트가 임베딩 API를 타지 않게 한다."""
+
+    def __init__(self, results: list[dict] | None = None) -> None:
+        self.queries: list[str] = []
+        self._results = results if results is not None else [
+            {
+                "title": "배송 안내 > 배송지는 언제 등록하나요",
+                "content": "배송지는 공동구매 모집 중 또는 상품 준비 중일 때만 등록할 수 있습니다.",
+                "relevance": 0.81,
+            }
+        ]
+
+    async def search(self, query: str, top_k: int = 3) -> list[dict]:
+        self.queries.append(query)
+        return self._results[:top_k]

@@ -3,11 +3,12 @@ import logging
 from collections.abc import AsyncIterator
 from typing import Any
 
-from google.genai import types
+from google.genai import errors, types
 
 from app.config import Settings
 from app.security import CurrentUser
 from app.spring_client import SpringClient
+from app.rag import FaqIndex
 from app.tools import TOOL_DEFINITIONS, execute_tool
 
 logger = logging.getLogger(__name__)
@@ -19,6 +20,10 @@ SYSTEM_PROMPT = """당신은 공동구매 쇼핑몰 '가치사'의 고객 지원
 
 원칙:
 - 한국어로 짧고 명확하게 답합니다.
+- 채팅 말풍선에 그대로 표시되므로 마크다운을 쓰지 않습니다. **굵게**, # 제목, - 목록 기호를
+  쓰지 말고 평문으로 씁니다. 항목을 나열할 때는 줄바꿈과 가운뎃점(·)을 씁니다.
+- 서비스 이용 방법이나 정책(공동구매 규칙, 환불, 취소, 배송지 등록 시점 등)을 물으면
+  search_faq로 먼저 확인합니다. 기억에 의존해 정책을 설명하지 않습니다.
 - 주문, 배송, 상품 정보는 반드시 도구로 조회한 결과만 근거로 답합니다. 추측하거나 지어내지 않습니다.
 - 도구 결과에 없는 내용은 모른다고 말하고, 필요하면 고객센터 문의를 안내합니다.
 - 배송 문의는 get_my_orders로 주문을 찾은 뒤 get_order_delivery로 상세를 확인합니다.
@@ -81,6 +86,7 @@ async def run_agent(
     settings: Settings,
     spring: SpringClient,
     user: CurrentUser,
+    faq: FaqIndex,
     message: str,
     history: list[dict[str, Any]],
 ) -> AsyncIterator[tuple[str, dict]]:
@@ -93,24 +99,37 @@ async def run_agent(
         system_instruction=SYSTEM_PROMPT,
         tools=GEMINI_TOOLS,
         max_output_tokens=settings.gemini_max_output_tokens,
+        # 도구는 이 파일의 루프가 직접 실행한다. SDK가 대신 호출하려 들면 안 된다.
+        automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
     )
 
     for _ in range(MAX_TURNS):
         received: list[types.Part] = []
         usage = None
 
-        stream = await client.aio.models.generate_content_stream(
-            model=settings.gemini_model, contents=contents, config=config
-        )
-        async for chunk in stream:
-            if chunk.usage_metadata is not None:
-                usage = chunk.usage_metadata
-            if not chunk.candidates:
-                continue
-            for part in chunk.candidates[0].content.parts or []:
-                received.append(part)
-                if part.text:
-                    yield "token", {"text": part.text}
+        try:
+            stream = await client.aio.models.generate_content_stream(
+                model=settings.gemini_model, contents=contents, config=config
+            )
+            async for chunk in stream:
+                if chunk.usage_metadata is not None:
+                    usage = chunk.usage_metadata
+                if not chunk.candidates:
+                    continue
+                for part in chunk.candidates[0].content.parts or []:
+                    received.append(part)
+                    if part.text:
+                        yield "token", {"text": part.text}
+        except errors.ClientError as e:
+            # 무료 티어는 모델당 분당 5회다. 도구를 쓰면 질문 하나가 2~3회를 소모하므로
+            # 연달아 물으면 쉽게 걸린다. 일반 오류와 구분해 안내해야 원인을 알 수 있다.
+            if e.code != 429:
+                raise
+            logger.warning("무료 티어 호출 한도 초과: user=%s", user.user_id)
+            yield "error", {
+                "message": "무료 사용량 한도에 걸렸습니다. 20초쯤 뒤에 다시 물어봐 주세요."
+            }
+            return
 
         if usage is not None:
             logger.info(
@@ -138,7 +157,7 @@ async def run_agent(
         # 도구를 순차가 아니라 동시에 실행한다. 주문 조회와 배송 조회가 함께 필요할 때
         # 대기 시간이 합이 아니라 최댓값이 된다.
         results = await asyncio.gather(
-            *(execute_tool(c.name, dict(c.args or {}), spring, user) for c in calls)
+            *(execute_tool(c.name, dict(c.args or {}), spring, user, faq) for c in calls)
         )
 
         contents.append(
