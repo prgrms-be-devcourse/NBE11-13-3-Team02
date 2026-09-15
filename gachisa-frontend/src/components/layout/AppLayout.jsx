@@ -17,6 +17,7 @@ import Alert from '@mui/material/Alert'
 import SearchIcon from '@mui/icons-material/Search'
 import CloseIcon from '@mui/icons-material/Close'
 import Logo from '../Logo.jsx'
+import ChatWidget from '../ChatWidget.jsx'
 import { useAuth } from '../../context/AuthContext.jsx'
 import { getCategories } from '../../api/categoryApi'
 import CategoryTreeSelect from '../CategoryTreeSelect.jsx'
@@ -226,6 +227,8 @@ export default function AppLayout() {
       <Box sx={{ maxWidth: 1200, mx: 'auto', px: { xs: 2, sm: 3 }, py: 4 }}>
         <Outlet />
       </Box>
+
+      <ChatWidget />
     </Box>
   )
 }
