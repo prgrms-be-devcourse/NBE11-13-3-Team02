@@ -3,7 +3,11 @@ package com.gachisa.payment.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.willThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.never;
 
@@ -33,6 +37,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
@@ -42,6 +47,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 class PaymentServiceTest {
 
     private static final Long PARTICIPATION_ID = 1L;
+    private static final Long GROUP_BUY_ID = 1L;
     private static final Long USER_ID = 10L;
     private static final String CLIENT_KEY = "768560b7-ec20-4a8d-93fd-c29d003e269f";
     private static final String QUEUE_TOKEN = "queue-token";
@@ -176,7 +182,8 @@ class PaymentServiceTest {
         given(participationService.getPaymentInfo(PARTICIPATION_ID)).willReturn(paymentInfo());
         var preparation = new ConfirmationPreparation(2L, "payment-key", "gachisa_order",
                 12_600, "25757835-c3ed-4484-b30f-7f1bea0b1c21", PaymentMethod.CARD, true, null);
-        given(confirmationStateService.prepare(2L, request)).willReturn(preparation);
+        given(confirmationStateService.checkConfirmable(2L, request)).willReturn(Optional.empty());
+        given(confirmationStateService.beginConfirmation(2L, request)).willReturn(preparation);
         PgConfirmationResult result = new PgConfirmationResult(
                 "payment-key", "gachisa_order", 12_600, PaymentMethod.CARD);
         given(pgClient.confirm("payment-key", "gachisa_order", 12_600,
@@ -186,6 +193,77 @@ class PaymentServiceTest {
         paymentService.confirmPayment(2L, USER_ID, request);
 
         verify(confirmationStateService).complete(2L, result);
+    }
+
+    /**
+     * 대기열 확정 시작은 DB 락을 잡는 두 트랜잭션 "사이"에서 일어나야 한다.
+     * 순서가 뒤집히면 락을 쥔 채 외부 호출을 기다리게 된다.
+     */
+    @Test
+    void startConfirmationRunsBetweenTheTwoLockedTransactions() {
+        Payment payment = payment();
+        PaymentAttempt attempt = attempt(PaymentMethod.CARD);
+        PaymentConfirmRequest request = new PaymentConfirmRequest("payment-key", "gachisa_order", 12_600);
+        given(attemptRepository.findById(2L)).willReturn(Optional.of(attempt));
+        given(paymentRepository.findById(1L)).willReturn(Optional.of(payment));
+        given(participationService.getPaymentInfo(PARTICIPATION_ID)).willReturn(paymentInfo());
+        var preparation = new ConfirmationPreparation(2L, "payment-key", "gachisa_order",
+                12_600, "25757835-c3ed-4484-b30f-7f1bea0b1c21", PaymentMethod.CARD, true, null);
+        given(confirmationStateService.checkConfirmable(2L, request)).willReturn(Optional.empty());
+        given(confirmationStateService.beginConfirmation(2L, request)).willReturn(preparation);
+        PgConfirmationResult result = new PgConfirmationResult(
+                "payment-key", "gachisa_order", 12_600, PaymentMethod.CARD);
+        given(pgClient.confirm("payment-key", "gachisa_order", 12_600,
+                "25757835-c3ed-4484-b30f-7f1bea0b1c21", PaymentMethod.CARD)).willReturn(result);
+        given(confirmationStateService.complete(2L, result)).willReturn(PaymentResponse.from(payment, attempt));
+
+        paymentService.confirmPayment(2L, USER_ID, request);
+
+        InOrder order = inOrder(confirmationStateService, queueService);
+        order.verify(confirmationStateService).checkConfirmable(2L, request);
+        order.verify(queueService).startConfirmation(GROUP_BUY_ID, USER_ID);
+        order.verify(confirmationStateService).beginConfirmation(2L, request);
+    }
+
+    /** 이미 끝난 결제면 대기열 확정을 다시 시작하면 안 된다. */
+    @Test
+    void settledPaymentDoesNotStartConfirmationAgain() {
+        Payment payment = payment();
+        PaymentAttempt attempt = attempt(PaymentMethod.CARD);
+        PaymentConfirmRequest request = new PaymentConfirmRequest("payment-key", "gachisa_order", 12_600);
+        given(attemptRepository.findById(2L)).willReturn(Optional.of(attempt));
+        given(paymentRepository.findById(1L)).willReturn(Optional.of(payment));
+        given(participationService.getPaymentInfo(PARTICIPATION_ID)).willReturn(paymentInfo());
+        given(confirmationStateService.checkConfirmable(2L, request))
+                .willReturn(Optional.of(PaymentResponse.from(payment, attempt)));
+
+        paymentService.confirmPayment(2L, USER_ID, request);
+
+        verify(queueService, never()).startConfirmation(anyLong(), anyLong());
+        verify(confirmationStateService, never()).beginConfirmation(anyLong(), any());
+        verify(pgClient, never()).confirm(any(), any(), anyInt(), any(), any());
+    }
+
+    /** 대기열 입장이 만료됐으면 PG를 부르지 않고 그대로 실패해야 한다. */
+    @Test
+    void expiredQueueAdmissionStopsBeforePg() {
+        Payment payment = payment();
+        PaymentAttempt attempt = attempt(PaymentMethod.CARD);
+        PaymentConfirmRequest request = new PaymentConfirmRequest("payment-key", "gachisa_order", 12_600);
+        given(attemptRepository.findById(2L)).willReturn(Optional.of(attempt));
+        given(paymentRepository.findById(1L)).willReturn(Optional.of(payment));
+        given(participationService.getPaymentInfo(PARTICIPATION_ID)).willReturn(paymentInfo());
+        given(confirmationStateService.checkConfirmable(2L, request)).willReturn(Optional.empty());
+        willThrow(new CustomException(ErrorCode.QUEUE_ADMISSION_EXPIRED))
+                .given(queueService).startConfirmation(GROUP_BUY_ID, USER_ID);
+
+        assertThatThrownBy(() -> paymentService.confirmPayment(2L, USER_ID, request))
+                .isInstanceOf(CustomException.class)
+                .extracting(e -> ((CustomException) e).getErrorCode())
+                .isEqualTo(ErrorCode.QUEUE_ADMISSION_EXPIRED);
+
+        verify(confirmationStateService, never()).beginConfirmation(anyLong(), any());
+        verify(pgClient, never()).confirm(any(), any(), anyInt(), any(), any());
     }
 
     @Test
@@ -207,7 +285,8 @@ class PaymentServiceTest {
         given(participationService.getPaymentInfo(PARTICIPATION_ID)).willReturn(paymentInfo());
         var preparation = new ConfirmationPreparation(2L, "payment-key", "gachisa_order",
                 12_600, "25757835-c3ed-4484-b30f-7f1bea0b1c21", PaymentMethod.CARD, true, null);
-        given(confirmationStateService.prepare(2L, request)).willReturn(preparation);
+        given(confirmationStateService.checkConfirmable(2L, request)).willReturn(Optional.empty());
+        given(confirmationStateService.beginConfirmation(2L, request)).willReturn(preparation);
         CustomException temporaryFailure = new CustomException(ErrorCode.PAYMENT_GATEWAY_UNAVAILABLE);
         given(pgClient.confirm("payment-key", "gachisa_order", 12_600,
                 "25757835-c3ed-4484-b30f-7f1bea0b1c21", PaymentMethod.CARD))
@@ -264,7 +343,7 @@ class PaymentServiceTest {
     }
 
     private ParticipationPaymentInfo paymentInfo() {
-        return new ParticipationPaymentInfo(PARTICIPATION_ID, USER_ID, 1L, 1, true);
+        return new ParticipationPaymentInfo(PARTICIPATION_ID, USER_ID, GROUP_BUY_ID, 1, true);
     }
 
     private Payment payment() {

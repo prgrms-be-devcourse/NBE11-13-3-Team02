@@ -21,6 +21,7 @@ import com.gachisa.payment.repository.PaymentRepository;
 import com.gachisa.queue.service.QueueService;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.Optional;
 import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -122,8 +123,23 @@ public class PaymentService {
         ParticipationPaymentInfo participation = participationService.getPaymentInfo(payment.getParticipationId());
         validateOwner(participation, userId);
 
-        ConfirmationPreparation preparation = confirmationStateService.prepare(paymentAttemptId, request);
+        Optional<PaymentResponse> settled =
+                confirmationStateService.checkConfirmable(paymentAttemptId, request);
+        if (settled.isPresent()) {
+            if (settled.get().paymentStatus() == PaymentStatus.PAID) {
+                queueService.completeAdmission(participation.groupBuyId(), userId);
+            }
+            return settled.get();
+        }
+
+        // 대기열 확정 시작은 DB 락 밖에서 한다. 락을 쥔 채 부르면 결제 폭주 시 락 점유
+        // 시간이 외부 응답 시간만큼 늘어난다. 큐를 별도 서비스로 빼면 여기가 네트워크가 된다.
+        queueService.startConfirmation(participation.groupBuyId(), userId);
+
+        ConfirmationPreparation preparation =
+                confirmationStateService.beginConfirmation(paymentAttemptId, request);
         if (!preparation.requestRequired()) {
+            // 두 트랜잭션 사이에 다른 요청이 먼저 처리한 경우다.
             if (preparation.existingResponse().paymentStatus() == PaymentStatus.PAID) {
                 queueService.completeAdmission(participation.groupBuyId(), userId);
             }
