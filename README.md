@@ -45,7 +45,7 @@
 | 영역 | 스택 |
 |---|---|
 | Frontend | React 18, Vite, React Router v6, MUI v5, axios, Toss Payments SDK |
-| Backend (core) | Spring Boot 4 (Java 25), Spring Security(JWT), Spring Data JPA + QueryDSL, Spring Data Redis |
+| Backend (core) | Spring Boot 4 (Java 17), Spring Security(JWT), Spring Data JPA + QueryDSL, Spring Data Redis |
 | 대기열 서비스 | Kotlin, Spring Boot 4 WebFlux, 코루틴, Reactive Redis |
 | 챗봇 서비스 | Python 3.12, FastAPI, asyncio, Google Gemini |
 | Database | MySQL 8 |
@@ -53,24 +53,14 @@
 | 외부 연동 | Toss Payments(결제), Kakao/Naver OAuth2(소셜 로그인), Google Gemini(챗봇) |
 | 인증 | JWT accessToken(메모리) + httpOnly refreshToken 쿠키, 자체 로그인 + 소셜 로그인 |
 
-### Kotlin 적용 권장 범위
+### 코루틴을 대기열 서비스에만 적용한 이유
 
-현재 `concurrency`, `participation`, `groupbuy`에는 실행을 담당하는 Java Spring 클래스와
-비교·학습용 Kotlin 파일을 함께 두었습니다. 동일한 패키지와 클래스명을 Java/Kotlin으로
-중복 정의하면 컴파일 및 Spring Bean 충돌이 발생하므로 Kotlin 예제는
-`com.gachisa.kotlinexamples` 아래에 분리했습니다.
+코루틴은 논블로킹 I/O 위에서만 처리량 이득이 있습니다. JPA/JDBC 위에 얹으면 드라이버가
+스레드를 붙잡으므로 `suspend`를 붙여도 동시성은 그대로입니다.
 
-실제 Kotlin 전환은 다음 순서가 적합합니다.
-
-- **DTO와 응답 모델**: `data class`, nullable 타입, 기본값으로 Lombok과 보일러플레이트를 줄이기 좋습니다.
-- **Service의 순수 계산·검증 로직**: `when`, 표현식 함수, 확장 함수, `require`로 상태 전이를 간결하게 표현할 수 있습니다.
-- **Repository 조회 결과 변환**: `map`, `let`, Elvis 연산자(`?:`)로 null 처리와 DTO 변환을 안전하게 작성할 수 있습니다.
-- **Entity**는 JPA 프록시와 기본 생성자 요구사항이 있어 마지막에 전환하는 것이 안전합니다.
-- **Controller와 동시성 인프라**는 Java와의 상호운용성이 높고 기존 동작 검증이 중요하므로 우선 Java로 유지하는 편이 좋습니다.
-
-> 코루틴은 논블로킹 I/O 위에서만 처리량 이득이 있습니다. JPA/JDBC 위에 얹으면 드라이버가
-> 스레드를 붙잡으므로 `suspend`를 붙여도 동시성은 그대로입니다. 그래서 실제 코루틴 적용은
-> 저장소가 Redis뿐인 **대기열 서비스**(`gachisa-queue`)에서 먼저 했습니다.
+대기열 서비스는 저장소가 Redis뿐이고 Lettuce가 논블로킹이라, 요청 처리 전 구간에 스레드를
+붙잡는 곳이 없습니다. core의 다른 모듈과 결정적으로 다른 점이고, 그래서 여기에 먼저
+적용했습니다. 자세한 내용은 [gachisa-queue/README.md](./gachisa-queue/README.md) 참고.
 
 ## 프로젝트 구조
 
