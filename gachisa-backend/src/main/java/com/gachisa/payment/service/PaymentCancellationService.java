@@ -14,7 +14,7 @@ import com.gachisa.payment.repository.PaymentRepository;
 import com.gachisa.payment.repository.PaymentAttemptRepository;
 import com.gachisa.payment.repository.RefundRepository;
 import com.gachisa.global.util.TimeProvider;
-import com.gachisa.queue.service.QueueService;
+import com.gachisa.queue.client.QueueClient;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -31,7 +31,7 @@ public class PaymentCancellationService {
     private final RefundRepository refundRepository;
     private final ParticipationService participationService;
     private final RefundService refundService;
-    private final QueueService queueService;
+    private final QueueClient queueClient;
     private final TimeProvider timeProvider;
 
     @Transactional
@@ -54,7 +54,7 @@ public class PaymentCancellationService {
                 }
             }
             participationService.cancel(participationId, userId);
-            queueService.completeAdmission(participation.groupBuyId(), userId);
+            queueClient.completeAdmission(participation.groupBuyId(), userId);
             return PaymentCancellationResponse.cancelled();
         }
         if (payment.getStatus() == PaymentStatus.PAID) {

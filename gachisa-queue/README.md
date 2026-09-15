@@ -84,9 +84,29 @@ JWT_SECRET=<core와 동일> QUEUE_INTERNAL_TOKEN=<공유 시크릿> ./gradlew bo
 - [x] Redis 계층(Lua 스크립트 6개) 코루틴 포팅
 - [x] 대기열 도메인 로직, 공개/내부 API, JWT·내부 토큰 인증
 - [x] core 쪽 락 분리 선행 리팩터링
-- [ ] core에서 인프로세스 `QueueService`를 HTTP 클라이언트로 교체
-- [ ] core에 `/internal/group-buys/{id}/queue-info`, `/internal/payment-attempts/{id}/expire` 추가
-- [ ] core의 queue 패키지 제거
+- [x] core의 인프로세스 QueueService를 HTTP 클라이언트로 교체
+- [x] core에 internal API 2개 추가, queue 패키지 제거
+- [x] 프론트엔드 프록시 분기
 
-**아직 core와 연결되지 않았다.** 스텁 core로 전체 생명주기(발급 → 입장 → 확정 시작 →
-완료 → 다음 사람 입장)를 확인했다.
+실제 core(MySQL+Redis)와 이 서비스를 함께 띄워 확인한 것:
+
+| 경로 | 결과 |
+| --- | --- |
+| 브라우저 → queue 토큰 발급 | 정원만큼 ADMITTED, 나머지 WAITING |
+| core → queue `requireAdmission` | 결제 시도 생성 201 |
+| 위조한 대기열 토큰 | core가 `QUEUE_TOKEN_INVALID`로 복원 (400) |
+| queue 서비스 정지 | core가 `QUEUE_UNAVAILABLE` (503), 결제만 막히고 나머지는 동작 |
+| 사용자 JWT로 internal 호출 | 403 |
+
+## 에러 코드가 프로세스를 건너 전달되는 방식
+
+`ResponseStatusException`의 reason은 Spring 기본 에러 본문에 실리지 않는다. 그래서 어떤
+실패인지 core가 구분할 수 없었다. 서비스 간 계약이므로 `QueueExceptionHandler`에서
+`{"error": "QUEUE_TOKEN_INVALID", ...}`로 직접 만들어 내려주고, core의 `QueueClient`가
+그 이름으로 자기 `ErrorCode`를 복원한다. 프론트엔드가 보는 응답은 분리 전과 같다.
+
+## 남은 과제
+
+core → queue 호출은 여전히 Tomcat 스레드를 붙잡는다(core는 Spring MVC). 분리로 얻은 것은
+**DB 락 밖으로 뺀 것**이지 core가 논블로킹이 된 것은 아니다. core까지 논블로킹으로 가려면
+Java 21 가상 스레드나 WebFlux 전환이 필요하다.

@@ -22,7 +22,7 @@ import org.mockito.kotlin.mock
 import org.mockito.kotlin.never
 import org.mockito.kotlin.stub
 import org.mockito.kotlin.verify
-import org.springframework.web.server.ResponseStatusException
+
 
 class QueueServiceTest {
 
@@ -53,9 +53,9 @@ class QueueServiceTest {
         }
         val service = QueueService(queue, core, properties, clock)
 
-        val error = assertThrows<ResponseStatusException> { service.issueToken(1L, 7L) }
+        val error = assertThrows<QueueException> { service.issueToken(1L, 7L) }
 
-        assertTrue(error.message.contains("QUEUE_NOT_OPEN"))
+        assertTrue(error.message!!.contains("QUEUE_NOT_OPEN"))
         verify(queue, never()).enqueue(any(), any(), any())
     }
 
@@ -67,7 +67,7 @@ class QueueServiceTest {
         }
         val service = QueueService(queue, core, properties, clock)
 
-        assertThrows<ResponseStatusException> { service.issueToken(1L, 7L) }
+        assertThrows<QueueException> { service.issueToken(1L, 7L) }
     }
 
     @Test
@@ -78,9 +78,9 @@ class QueueServiceTest {
         }
         val service = QueueService(queue, mock(), properties, clock)
 
-        val error = assertThrows<ResponseStatusException> { service.requireAdmission(1L, 7L, "tok") }
+        val error = assertThrows<QueueException> { service.requireAdmission(1L, 7L, "tok") }
 
-        assertTrue(error.message.contains("QUEUE_ADMISSION_REQUIRED"))
+        assertTrue(error.message!!.contains("QUEUE_ADMISSION_REQUIRED"))
     }
 
     @Test
@@ -91,9 +91,9 @@ class QueueServiceTest {
         }
         val service = QueueService(queue, mock(), properties, clock)
 
-        val error = assertThrows<ResponseStatusException> { service.requireAdmission(1L, 7L, "tok") }
+        val error = assertThrows<QueueException> { service.requireAdmission(1L, 7L, "tok") }
 
-        assertTrue(error.message.contains("QUEUE_ADMISSION_EXPIRED"))
+        assertTrue(error.message!!.contains("QUEUE_ADMISSION_EXPIRED"))
     }
 
     @Test
@@ -103,9 +103,9 @@ class QueueServiceTest {
         }
         val service = QueueService(queue, mock(), properties, clock)
 
-        val error = assertThrows<ResponseStatusException> { service.getStatus(1L, 7L, "guessed") }
+        val error = assertThrows<QueueException> { service.getStatus(1L, 7L, "guessed") }
 
-        assertTrue(error.message.contains("QUEUE_TOKEN_INVALID"))
+        assertTrue(error.message!!.contains("QUEUE_TOKEN_INVALID"))
     }
 
     @Test
@@ -133,7 +133,7 @@ class QueueServiceTest {
         }
         val service = QueueService(queue, mock(), properties, clock)
 
-        assertThrows<ResponseStatusException> { service.startConfirmation(1L, 7L) }
+        assertThrows<QueueException> { service.startConfirmation(1L, 7L) }
     }
 
     /**

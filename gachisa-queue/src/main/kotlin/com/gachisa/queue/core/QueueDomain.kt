@@ -4,7 +4,6 @@ import java.time.Duration
 import java.time.LocalDateTime
 import org.springframework.boot.context.properties.ConfigurationProperties
 import org.springframework.http.HttpStatus
-import org.springframework.web.server.ResponseStatusException
 
 enum class QueueState { WAITING, ADMITTED, CONFIRMING }
 
@@ -36,16 +35,21 @@ data class GroupBuyQueueInfo(
     val remainingCount: Int get() = (targetCount - currentCount).coerceAtLeast(0)
 }
 
-/** core의 ErrorCode와 같은 이름을 쓴다. 프론트엔드가 분기하는 값이라 바뀌면 안 된다. */
+/**
+ * core의 ErrorCode와 같은 이름을 쓴다. core가 이 이름으로 자기 예외를 복원하고
+ * 프론트엔드가 그 값으로 분기하므로 바뀌면 안 된다.
+ */
 enum class QueueError(val status: HttpStatus, val message: String) {
-    QUEUE_NOT_OPEN(HttpStatus.BAD_REQUEST, "대기열을 사용할 수 없는 공동구매입니다."),
-    QUEUE_TOKEN_INVALID(HttpStatus.FORBIDDEN, "유효하지 않은 대기열 토큰입니다."),
-    QUEUE_ADMISSION_REQUIRED(HttpStatus.FORBIDDEN, "대기열 입장이 필요합니다."),
-    QUEUE_ADMISSION_EXPIRED(HttpStatus.GONE, "대기열 입장이 만료되었습니다."),
+    QUEUE_NOT_OPEN(HttpStatus.CONFLICT, "현재 대기열에 참여할 수 없습니다."),
+    QUEUE_TOKEN_INVALID(HttpStatus.BAD_REQUEST, "유효하지 않은 대기열 토큰입니다."),
+    QUEUE_ADMISSION_REQUIRED(HttpStatus.CONFLICT, "결제 차례가 아직 도착하지 않았습니다."),
+    QUEUE_ADMISSION_EXPIRED(HttpStatus.CONFLICT, "결제 가능 시간이 만료되었습니다."),
     ;
 
-    fun toException() = ResponseStatusException(status, name)
+    fun toException() = QueueException(this)
 }
+
+class QueueException(val error: QueueError) : RuntimeException(error.name)
 
 @ConfigurationProperties(prefix = "queue")
 data class QueueProperties(

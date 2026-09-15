@@ -18,7 +18,7 @@ import com.gachisa.payment.entity.PaymentAttemptStatus;
 import com.gachisa.payment.entity.PaymentStatus;
 import com.gachisa.payment.repository.PaymentAttemptRepository;
 import com.gachisa.payment.repository.PaymentRepository;
-import com.gachisa.queue.service.QueueService;
+import com.gachisa.queue.client.QueueClient;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.Optional;
@@ -42,7 +42,7 @@ public class PaymentService {
     private final PgClient pgClient;
     private final PaymentConfirmationStateService confirmationStateService;
     private final TimeProvider timeProvider;
-    private final QueueService queueService;
+    private final QueueClient queueClient;
     private final OrderService orderService;
 
     @Transactional
@@ -60,7 +60,7 @@ public class PaymentService {
             return PaymentResponse.from(payment, idempotentAttempt);
         }
 
-        queueService.requireAdmission(participation.groupBuyId(), userId, queueToken);
+        queueClient.requireAdmission(participation.groupBuyId(), userId, queueToken);
 
         Payment existingPayment = paymentRepository.findByParticipationId(participationId).orElse(null);
         LocalDateTime now = timeProvider.now();
@@ -113,7 +113,7 @@ public class PaymentService {
                 .updatedAt(now)
                 .build();
         PaymentAttempt savedAttempt = paymentAttemptRepository.save(attempt);
-        queueService.bindPaymentAttempt(participation.groupBuyId(), userId, savedAttempt.getId());
+        queueClient.bindPaymentAttempt(participation.groupBuyId(), userId, savedAttempt.getId());
         return PaymentResponse.from(payment, savedAttempt);
     }
 
@@ -127,21 +127,21 @@ public class PaymentService {
                 confirmationStateService.checkConfirmable(paymentAttemptId, request);
         if (settled.isPresent()) {
             if (settled.get().paymentStatus() == PaymentStatus.PAID) {
-                queueService.completeAdmission(participation.groupBuyId(), userId);
+                queueClient.completeAdmission(participation.groupBuyId(), userId);
             }
             return settled.get();
         }
 
         // 대기열 확정 시작은 DB 락 밖에서 한다. 락을 쥔 채 부르면 결제 폭주 시 락 점유
         // 시간이 외부 응답 시간만큼 늘어난다. 큐를 별도 서비스로 빼면 여기가 네트워크가 된다.
-        queueService.startConfirmation(participation.groupBuyId(), userId);
+        queueClient.startConfirmation(participation.groupBuyId(), userId);
 
         ConfirmationPreparation preparation =
                 confirmationStateService.beginConfirmation(paymentAttemptId, request);
         if (!preparation.requestRequired()) {
             // 두 트랜잭션 사이에 다른 요청이 먼저 처리한 경우다.
             if (preparation.existingResponse().paymentStatus() == PaymentStatus.PAID) {
-                queueService.completeAdmission(participation.groupBuyId(), userId);
+                queueClient.completeAdmission(participation.groupBuyId(), userId);
             }
             return preparation.existingResponse();
         }
@@ -155,12 +155,12 @@ public class PaymentService {
                     preparation.paymentMethod()
             );
             PaymentResponse response = confirmationStateService.complete(paymentAttemptId, result);
-            queueService.completeAdmission(participation.groupBuyId(), userId);
+            queueClient.completeAdmission(participation.groupBuyId(), userId);
             return response;
         } catch (CustomException exception) {
             if (exception.getErrorCode() == ErrorCode.PAYMENT_GATEWAY_REJECTED) {
                 confirmationStateService.fail(paymentAttemptId, exception.getErrorCode());
-                queueService.confirmationFailed(participation.groupBuyId(), userId);
+                queueClient.confirmationFailed(participation.groupBuyId(), userId);
             } else {
                 confirmationStateService.keepProcessing(paymentAttemptId, exception.getErrorCode());
             }

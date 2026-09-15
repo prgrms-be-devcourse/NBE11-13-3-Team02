@@ -30,7 +30,7 @@ import com.gachisa.payment.entity.PaymentStatus;
 import com.gachisa.payment.repository.PaymentAttemptRepository;
 import com.gachisa.payment.repository.PaymentRepository;
 import com.gachisa.payment.service.dto.ConfirmationPreparation;
-import com.gachisa.queue.service.QueueService;
+import com.gachisa.queue.client.QueueClient;
 import java.time.LocalDateTime;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -59,7 +59,7 @@ class PaymentServiceTest {
     @Mock PgClient pgClient;
     @Mock PaymentConfirmationStateService confirmationStateService;
     @Mock TimeProvider timeProvider;
-    @Mock QueueService queueService;
+    @Mock QueueClient queueClient;
     @Mock OrderService orderService;
     private PaymentService paymentService;
 
@@ -67,7 +67,7 @@ class PaymentServiceTest {
     void setUp() {
         paymentService = new PaymentService(paymentRepository, attemptRepository,
                 participationService, amountCalculator, pgClient,
-                confirmationStateService, timeProvider, queueService, orderService);
+                confirmationStateService, timeProvider, queueClient, orderService);
     }
 
     @Test
@@ -219,9 +219,9 @@ class PaymentServiceTest {
 
         paymentService.confirmPayment(2L, USER_ID, request);
 
-        InOrder order = inOrder(confirmationStateService, queueService);
+        InOrder order = inOrder(confirmationStateService, queueClient);
         order.verify(confirmationStateService).checkConfirmable(2L, request);
-        order.verify(queueService).startConfirmation(GROUP_BUY_ID, USER_ID);
+        order.verify(queueClient).startConfirmation(GROUP_BUY_ID, USER_ID);
         order.verify(confirmationStateService).beginConfirmation(2L, request);
     }
 
@@ -239,7 +239,7 @@ class PaymentServiceTest {
 
         paymentService.confirmPayment(2L, USER_ID, request);
 
-        verify(queueService, never()).startConfirmation(anyLong(), anyLong());
+        verify(queueClient, never()).startConfirmation(anyLong(), anyLong());
         verify(confirmationStateService, never()).beginConfirmation(anyLong(), any());
         verify(pgClient, never()).confirm(any(), any(), anyInt(), any(), any());
     }
@@ -255,7 +255,7 @@ class PaymentServiceTest {
         given(participationService.getPaymentInfo(PARTICIPATION_ID)).willReturn(paymentInfo());
         given(confirmationStateService.checkConfirmable(2L, request)).willReturn(Optional.empty());
         willThrow(new CustomException(ErrorCode.QUEUE_ADMISSION_EXPIRED))
-                .given(queueService).startConfirmation(GROUP_BUY_ID, USER_ID);
+                .given(queueClient).startConfirmation(GROUP_BUY_ID, USER_ID);
 
         assertThatThrownBy(() -> paymentService.confirmPayment(2L, USER_ID, request))
                 .isInstanceOf(CustomException.class)

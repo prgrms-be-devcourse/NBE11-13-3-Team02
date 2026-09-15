@@ -7,6 +7,12 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
+      // 대기열은 별도 Kotlin 서비스(8081). 아래 '/api' 규칙보다 먼저 매칭돼야 하므로
+      // 더 구체적인 이 항목을 위에 둔다.
+      '^/api/group-buys/[0-9]+/queue-token': {
+        target: 'http://localhost:8081',
+        changeOrigin: true,
+      },
       '/api': {
         target: 'http://localhost:8080',
         changeOrigin: true,

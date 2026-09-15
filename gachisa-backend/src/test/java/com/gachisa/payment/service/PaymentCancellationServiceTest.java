@@ -22,7 +22,7 @@ import com.gachisa.payment.entity.RefundStatus;
 import com.gachisa.payment.repository.PaymentRepository;
 import com.gachisa.payment.repository.PaymentAttemptRepository;
 import com.gachisa.payment.repository.RefundRepository;
-import com.gachisa.queue.service.QueueService;
+import com.gachisa.queue.client.QueueClient;
 import java.util.List;
 import java.time.LocalDateTime;
 import java.util.Optional;
@@ -45,7 +45,7 @@ class PaymentCancellationServiceTest {
     @Mock RefundRepository refundRepository;
     @Mock ParticipationService participationService;
     @Mock RefundService refundService;
-    @Mock QueueService queueService;
+    @Mock QueueClient queueClient;
     @Mock TimeProvider timeProvider;
     private PaymentCancellationService service;
 
@@ -53,7 +53,7 @@ class PaymentCancellationServiceTest {
     void setUp() {
         service = new PaymentCancellationService(
                 paymentRepository, paymentAttemptRepository, refundRepository,
-                participationService, refundService, queueService, timeProvider);
+                participationService, refundService, queueClient, timeProvider);
     }
 
     @Test
@@ -83,7 +83,7 @@ class PaymentCancellationServiceTest {
         assertThat(response.result()).isEqualTo("PARTICIPATION_CANCELLED");
         assertThat(attempt.getStatus()).isEqualTo(PaymentAttemptStatus.CANCELLED);
         verify(participationService).cancel(PARTICIPATION_ID, USER_ID);
-        verify(queueService).completeAdmission(1L, USER_ID);
+        verify(queueClient).completeAdmission(1L, USER_ID);
     }
 
     @Test
