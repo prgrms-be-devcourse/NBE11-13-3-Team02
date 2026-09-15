@@ -92,7 +92,8 @@ public enum ErrorCode {
     ACCOUNT_ALREADY_SUSPENDED(HttpStatus.CONFLICT, "이미 정지된 계정입니다."),
     ACCOUNT_NOT_SUSPENDED(HttpStatus.CONFLICT, "정지된 계정이 아닙니다."),
     ACCOUNT_ALREADY_WITHDRAWN(HttpStatus.CONFLICT, "이미 탈퇴한 계정입니다."),
-    ADMIN_ACCOUNT_NOT_MANAGEABLE(HttpStatus.FORBIDDEN, "관리자 계정은 정지/탈퇴 대상이 될 수 없습니다.");
+    ADMIN_ACCOUNT_NOT_MANAGEABLE(HttpStatus.FORBIDDEN, "관리자 계정은 정지/탈퇴 대상이 될 수 없습니다."),
+    RECENTLY_WITHDRAWN_EMAIL(HttpStatus.CONFLICT, "최근 탈퇴한 이메일입니다. 24시간 이후 다시 가입할 수 있습니다.");
 
     private final HttpStatus status;
     private final String message;

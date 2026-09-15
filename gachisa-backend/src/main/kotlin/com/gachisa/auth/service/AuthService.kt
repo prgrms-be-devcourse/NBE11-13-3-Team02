@@ -60,6 +60,12 @@ class AuthService(
         refreshTokenService.logout(rawRefreshToken)
     }
 
+    @Transactional
+    fun withdraw(userId: Long, rawPassword: String?) {
+        userService.withdraw(userId, rawPassword)
+        refreshTokenService.revokeAllByUser(userId)
+    }
+
     private fun issueTokens(user: UserInfo): LoginResult {
         val accessToken = jwtTokenProvider.createAccessToken(user.id, user.name, user.role)
         val rawRefreshToken = refreshTokenService.issue(user)

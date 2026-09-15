@@ -3,22 +3,28 @@ package com.gachisa.user.service
 import com.gachisa.auth.client.OAuthUserInfo
 import com.gachisa.global.exception.CustomException
 import com.gachisa.global.exception.ErrorCode
+import com.gachisa.global.util.TimeProvider
 import com.gachisa.user.dto.UserInfo
 import com.gachisa.user.entity.User
 import com.gachisa.user.entity.UserProvider
 import com.gachisa.user.entity.UserRole
 import com.gachisa.user.entity.UserStatus
+import com.gachisa.user.entity.WithdrawnEmail
 import com.gachisa.user.repository.UserRepository
+import com.gachisa.user.repository.WithdrawnEmailRepository
 import org.springframework.security.crypto.password.PasswordEncoder
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
+import java.time.Duration
 import java.time.LocalDateTime
 
 @Service
 @Transactional(readOnly = true)
 class UserService(
     private val userRepository: UserRepository,
+    private val withdrawnEmailRepository: WithdrawnEmailRepository,
     private val passwordEncoder: PasswordEncoder,
+    private val timeProvider: TimeProvider,
 ) {
 
     @Transactional
@@ -26,6 +32,7 @@ class UserService(
         if (userRepository.existsByEmail(email)) {
             throw CustomException(ErrorCode.EMAIL_DUPLICATED)
         }
+        assertEmailNotRecentlyWithdrawn(email)
 
         val user = User.of(
             email = email,
@@ -102,6 +109,7 @@ class UserService(
             // 인증되지 않은 이메일이 이미 다른 계정에서 쓰이고 있다면, 그 계정을 가로채지 못하게 막는다.
             throw CustomException(ErrorCode.EMAIL_DUPLICATED)
         }
+        assertEmailNotRecentlyWithdrawn(email)
 
         val user = User.of(
             email = email,
@@ -116,6 +124,42 @@ class UserService(
         return toUserInfo(userRepository.save(user))
     }
 
+    @Transactional
+    fun withdraw(userId: Long, rawPassword: String?): UserInfo {
+        val user = userRepository.findById(userId)
+            .orElseThrow { CustomException(ErrorCode.USER_NOT_FOUND) }
+
+        val storedPassword = user.password
+        if (storedPassword != null && !passwordEncoder.matches(rawPassword ?: "", storedPassword)) {
+            throw CustomException(ErrorCode.INVALID_CREDENTIALS)
+        }
+
+        val originalEmail = user.email
+        user.withdraw()
+        if (originalEmail != null) {
+            recordWithdrawnEmail(originalEmail)
+        }
+
+        return toUserInfo(user)
+    }
+
+    private fun assertEmailNotRecentlyWithdrawn(email: String) {
+        val withdrawnEmail = withdrawnEmailRepository.findByEmail(email).orElse(null) ?: return
+        if (timeProvider.now().isBefore(withdrawnEmail.withdrawnAt.plus(WITHDRAWAL_COOLDOWN))) {
+            throw CustomException(ErrorCode.RECENTLY_WITHDRAWN_EMAIL)
+        }
+    }
+
+    private fun recordWithdrawnEmail(email: String) {
+        val now = timeProvider.now()
+        val existing = withdrawnEmailRepository.findByEmail(email).orElse(null)
+        if (existing != null) {
+            existing.renewWithdrawnAt(now)
+        } else {
+            withdrawnEmailRepository.save(WithdrawnEmail.of(email, now))
+        }
+    }
+
     private fun validateActive(user: User) {
         when (user.status) {
             UserStatus.SUSPENDED -> throw CustomException(ErrorCode.ACCOUNT_SUSPENDED)
@@ -126,5 +170,9 @@ class UserService(
 
     private fun toUserInfo(user: User): UserInfo {
         return UserInfo(user.id!!, user.email, user.name, user.role, user.createdAt, user.status)
+    }
+
+    companion object {
+        private val WITHDRAWAL_COOLDOWN: Duration = Duration.ofDays(1)
     }
 }

@@ -28,8 +28,6 @@ spring:
 jwt:
   secret: change-this-to-a-64-byte-or-longer-random-string-for-hs512-algorithm-xxxxx
 
-# 카카오/네이버 개발자 콘솔에서 발급받은 값으로 채우세요. 비워두면 소셜 로그인만 동작 안 하고
-# 나머지 기능은 정상 동작합니다 (OAUTH_PROVIDER_ERROR로 응답).
 oauth:
   kakao:
     client-id: your-kakao-rest-api-key

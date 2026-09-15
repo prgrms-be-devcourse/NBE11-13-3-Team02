@@ -12,6 +12,7 @@ import jakarta.persistence.Id
 import jakarta.persistence.Table
 import jakarta.persistence.UniqueConstraint
 import java.time.LocalDateTime
+import java.util.UUID
 
 @Entity
 @Table(
@@ -20,7 +21,7 @@ import java.time.LocalDateTime
 )
 class User private constructor(
     @Column(nullable = false, unique = true)
-    val email: String?,
+    var email: String?,
 
     // 소셜 전용 계정은 비밀번호가 없을 수 있다 (nullable)
     var password: String?,
@@ -86,6 +87,8 @@ class User private constructor(
             throw CustomException(ErrorCode.ACCOUNT_ALREADY_WITHDRAWN)
         }
         this.status = UserStatus.WITHDRAWN
+        // 탈퇴 즉시 이메일을 익명화해 원래 이메일로 재가입할 수 있게 한다 (쿨다운 판정은 별도 WithdrawnEmail에 기록).
+        this.email = "withdrawn-${UUID.randomUUID()}@withdrawn.local"
     }
 
     companion object {

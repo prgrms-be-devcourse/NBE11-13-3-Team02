@@ -2,12 +2,16 @@ package com.gachisa.user.service
 
 import com.gachisa.global.exception.CustomException
 import com.gachisa.global.exception.ErrorCode
+import com.gachisa.global.util.TimeProvider
 import com.gachisa.user.entity.User
 import com.gachisa.user.entity.UserRole
 import com.gachisa.user.entity.UserStatus
+import com.gachisa.user.entity.WithdrawnEmail
 import com.gachisa.user.repository.UserRepository
+import com.gachisa.user.repository.WithdrawnEmailRepository
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.slot
 import io.mockk.verify
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
@@ -21,13 +25,15 @@ import java.util.Optional
 class UserServiceTest {
 
     private val userRepository: UserRepository = mockk()
+    private val withdrawnEmailRepository: WithdrawnEmailRepository = mockk()
     private val passwordEncoder: PasswordEncoder = mockk()
+    private val timeProvider: TimeProvider = mockk()
 
     private lateinit var userService: UserService
 
     @BeforeEach
     fun setUp() {
-        userService = UserService(userRepository, passwordEncoder)
+        userService = UserService(userRepository, withdrawnEmailRepository, passwordEncoder, timeProvider)
     }
 
     @Test
@@ -127,7 +133,81 @@ class UserServiceTest {
             .isEqualTo(ErrorCode.ACCOUNT_WITHDRAWN)
     }
 
-    private fun user(email: String, password: String, name: String, role: UserRole): User {
+    @Test
+    fun signUpThrowsWhenEmailRecentlyWithdrawn() {
+        every { userRepository.existsByEmail("buyer1@test.com") } returns false
+        every { withdrawnEmailRepository.findByEmail("buyer1@test.com") } returns
+            Optional.of(WithdrawnEmail.of("buyer1@test.com", NOW.minusHours(1)))
+        every { timeProvider.now() } returns NOW
+
+        assertThatThrownBy { userService.signUp("buyer1@test.com", "1234", "구매자1", UserRole.ROLE_BUYER) }
+            .isInstanceOf(CustomException::class.java)
+            .extracting { (it as CustomException).errorCode }
+            .isEqualTo(ErrorCode.RECENTLY_WITHDRAWN_EMAIL)
+    }
+
+    @Test
+    fun signUpSucceedsWhenWithdrawnEmailCooldownExpired() {
+        every { userRepository.existsByEmail("buyer1@test.com") } returns false
+        every { withdrawnEmailRepository.findByEmail("buyer1@test.com") } returns
+            Optional.of(WithdrawnEmail.of("buyer1@test.com", NOW.minusDays(2)))
+        every { timeProvider.now() } returns NOW
+        every { passwordEncoder.encode("1234") } returns "encoded-password"
+        every { userRepository.save(any()) } answers {
+            val saved = firstArg<User>()
+            ReflectionTestUtils.setField(saved, "id", USER_ID)
+            saved
+        }
+
+        val userInfo = userService.signUp("buyer1@test.com", "1234", "구매자1", UserRole.ROLE_BUYER)
+
+        assertThat(userInfo.email).isEqualTo("buyer1@test.com")
+    }
+
+    @Test
+    fun withdrawAnonymizesEmailAndRecordsWithdrawnEmailWhenPasswordMatches() {
+        val user = user("buyer1@test.com", "encoded-password", "구매자1", UserRole.ROLE_BUYER)
+        every { userRepository.findById(USER_ID) } returns Optional.of(user)
+        every { passwordEncoder.matches("1234", "encoded-password") } returns true
+        every { withdrawnEmailRepository.findByEmail("buyer1@test.com") } returns Optional.empty()
+        every { timeProvider.now() } returns NOW
+        val recordedSlot = slot<WithdrawnEmail>()
+        every { withdrawnEmailRepository.save(capture(recordedSlot)) } answers { firstArg() }
+
+        val userInfo = userService.withdraw(USER_ID, "1234")
+
+        assertThat(userInfo.status).isEqualTo(UserStatus.WITHDRAWN)
+        assertThat(userInfo.email).contains("@withdrawn.local")
+        assertThat(recordedSlot.captured.email).isEqualTo("buyer1@test.com")
+    }
+
+    @Test
+    fun withdrawThrowsWhenPasswordDoesNotMatch() {
+        val user = user("buyer1@test.com", "encoded-password", "구매자1", UserRole.ROLE_BUYER)
+        every { userRepository.findById(USER_ID) } returns Optional.of(user)
+        every { passwordEncoder.matches("wrong-password", "encoded-password") } returns false
+
+        assertThatThrownBy { userService.withdraw(USER_ID, "wrong-password") }
+            .isInstanceOf(CustomException::class.java)
+            .extracting { (it as CustomException).errorCode }
+            .isEqualTo(ErrorCode.INVALID_CREDENTIALS)
+        verify(exactly = 0) { withdrawnEmailRepository.save(any()) }
+    }
+
+    @Test
+    fun withdrawSucceedsWithoutPasswordForSocialOnlyAccount() {
+        val user = user("buyer1@test.com", null, "구매자1", UserRole.ROLE_BUYER)
+        every { userRepository.findById(USER_ID) } returns Optional.of(user)
+        every { withdrawnEmailRepository.findByEmail("buyer1@test.com") } returns Optional.empty()
+        every { timeProvider.now() } returns NOW
+        every { withdrawnEmailRepository.save(any()) } answers { firstArg() }
+
+        val userInfo = userService.withdraw(USER_ID, null)
+
+        assertThat(userInfo.status).isEqualTo(UserStatus.WITHDRAWN)
+    }
+
+    private fun user(email: String, password: String?, name: String, role: UserRole): User {
         val user = User.of(
             email = email,
             password = password,

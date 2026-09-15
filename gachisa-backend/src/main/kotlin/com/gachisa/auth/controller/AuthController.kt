@@ -6,7 +6,9 @@ import com.gachisa.auth.dto.OAuthLoginRequest
 import com.gachisa.auth.dto.ReissueResponse
 import com.gachisa.auth.dto.SignUpRequest
 import com.gachisa.auth.dto.SignUpResponse
+import com.gachisa.auth.dto.WithdrawRequest
 import com.gachisa.auth.service.AuthService
+import com.gachisa.global.security.CustomUserDetails
 import io.swagger.v3.oas.annotations.Operation
 import io.swagger.v3.oas.annotations.security.SecurityRequirement
 import io.swagger.v3.oas.annotations.tags.Tag
@@ -14,6 +16,7 @@ import jakarta.servlet.http.HttpServletResponse
 import jakarta.validation.Valid
 import org.springframework.http.HttpHeaders
 import org.springframework.http.ResponseCookie
+import org.springframework.security.core.annotation.AuthenticationPrincipal
 import org.springframework.web.bind.annotation.CookieValue
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
@@ -95,6 +98,23 @@ class AuthController(
     @PostMapping("/logout")
     fun logout(@CookieValue(REFRESH_COOKIE_NAME) rawRefreshToken: String, response: HttpServletResponse) {
         authService.logout(rawRefreshToken)
+        clearRefreshCookie(response)
+    }
+
+    @Operation(
+        summary = "회원 탈퇴",
+        description = "본인 계정을 탈퇴 처리합니다. 비밀번호가 설정된 계정은 확인이 필요하고, 소셜 전용 계정은 생략할 수 있습니다. " +
+            "이메일은 즉시 익명화되어 다른 사람이 재사용할 수 있게 되지만, 같은 이메일로는 24시간 동안 재가입할 수 없습니다. " +
+            "리프레시 토큰은 즉시 전량 폐기됩니다. 되돌릴 수 없습니다.",
+    )
+    @SecurityRequirement(name = "bearerAuth")
+    @PostMapping("/withdraw")
+    fun withdraw(
+        @AuthenticationPrincipal userDetails: CustomUserDetails,
+        @RequestBody(required = false) request: WithdrawRequest?,
+        response: HttpServletResponse,
+    ) {
+        authService.withdraw(userDetails.userId, request?.password)
         clearRefreshCookie(response)
     }
 
