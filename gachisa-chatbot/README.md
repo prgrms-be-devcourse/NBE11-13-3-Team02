@@ -105,6 +105,27 @@ uv run uvicorn app.main:app --port 8000 --reload
 uv run pytest
 ```
 
+## 라우팅 평가
+
+`evals/routing.yaml`의 50문항으로 "질문에 맞는 도구를 고르는가"를 측정한다.
+
+```bash
+uv run python scripts/run_eval.py              # 전체 (무료 티어에서 약 15분)
+uv run python scripts/run_eval.py --limit 10   # 일부만
+```
+
+측정 대상은 **첫 번째 도구 선택**이다. 도구를 실제로 실행하지는 않는다 — 라우팅 판단은
+첫 호출에서 끝나고, 전체 루프를 돌리면 질문 하나에 API를 2~3회 써서 무료 한도를
+금방 소진한다. 러너는 프로덕션과 같은 시스템 프롬프트·도구 선언을 import해 쓴다.
+다르게 두면 측정 의미가 없다.
+
+채점은 LLM 심사 없이 문자열 비교다. 결정적이고 재현되며 추가 비용이 없다.
+한 질문에 두 경로가 모두 타당하면 `expected`에 둘 다 적는다.
+호출 자체가 실패한 건(429 등)은 라우팅 오답이 아니므로 채점에서 제외한다.
+
+프롬프트나 도구 설명을 고칠 때는 고치기 전후로 돌려 숫자를 비교한다.
+이 숫자 없이는 "정확도를 높였다"를 증명할 수 없다.
+
 로컬 수동 확인용 토큰 발급:
 
 ```bash
@@ -142,7 +163,7 @@ uv run python scripts/dev_token.py 7 "안세호" ROLE_BUYER
 - [x] 2단계: LLM 연결 + 도구 3개(공동구매 검색, 주문 조회, 배송 조회)
 - [x] 프론트엔드 챗 위젯 (`gachisa-frontend/src/components/ChatWidget.jsx`)
 - [x] 3단계: FAQ 문서 RAG 도구(`search_faq`) 추가
-- [ ] 4단계: 평가셋 50문항으로 도구 라우팅 정확도 측정
+- [x] 4단계: 평가셋 50문항으로 도구 라우팅 정확도 측정
 
 실제 Gemini API로 확인한 것:
 
