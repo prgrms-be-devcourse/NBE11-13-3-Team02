@@ -3,7 +3,7 @@ import logging
 from collections.abc import AsyncIterator
 from typing import Any
 
-from anthropic import AsyncAnthropic
+from google.genai import types
 
 from app.config import Settings
 from app.security import CurrentUser
@@ -33,10 +33,51 @@ SYSTEM_PROMPT = """당신은 공동구매 쇼핑몰 '가치사'의 고객 지원
 SHIPPING(배송 중), DELIVERED(배송 완료), CANCELLED(취소), RETURNING(반품 중), RETURNED(반품 완료)
 """
 
+GEMINI_TOOLS = [
+    types.Tool(
+        function_declarations=[
+            types.FunctionDeclaration(
+                name=tool["name"],
+                description=tool["description"],
+                parameters_json_schema=tool["input_schema"],
+            )
+            for tool in TOOL_DEFINITIONS
+        ]
+    )
+]
+
+
+def build_history(history: list[dict[str, Any]]) -> list[types.Content]:
+    # Gemini는 assistant가 아니라 model 역할을 쓴다.
+    return [
+        types.Content(
+            role="model" if item["role"] == "assistant" else "user",
+            parts=[types.Part.from_text(text=item["content"])],
+        )
+        for item in history
+    ]
+
+
+def _merge_text(parts: list[types.Part]) -> list[types.Part]:
+    """스트리밍으로 쪼개져 온 텍스트 조각을 하나로 합친다. 함수 호출 파트는 그대로 둔다."""
+    merged: list[types.Part] = []
+    buffer = ""
+    for part in parts:
+        if part.function_call is not None:
+            if buffer:
+                merged.append(types.Part.from_text(text=buffer))
+                buffer = ""
+            merged.append(part)
+        elif part.text:
+            buffer += part.text
+    if buffer:
+        merged.append(types.Part.from_text(text=buffer))
+    return merged
+
 
 async def run_agent(
     *,
-    client: AsyncAnthropic,
+    client: Any,
     settings: Settings,
     spring: SpringClient,
     user: CurrentUser,
@@ -44,65 +85,70 @@ async def run_agent(
     history: list[dict[str, Any]],
 ) -> AsyncIterator[tuple[str, dict]]:
     """에이전트 루프. (이벤트명, 데이터) 튜플을 스트리밍으로 내보낸다."""
-    messages: list[dict[str, Any]] = [*history, {"role": "user", "content": message}]
+    contents = [
+        *build_history(history),
+        types.Content(role="user", parts=[types.Part.from_text(text=message)]),
+    ]
+    config = types.GenerateContentConfig(
+        system_instruction=SYSTEM_PROMPT,
+        tools=GEMINI_TOOLS,
+        max_output_tokens=settings.gemini_max_output_tokens,
+    )
 
     for _ in range(MAX_TURNS):
-        async with client.beta.messages.stream(
-            model=settings.anthropic_model,
-            max_tokens=settings.anthropic_max_tokens,
-            system=SYSTEM_PROMPT,
-            tools=TOOL_DEFINITIONS,
-            messages=messages,
-            thinking={"type": "adaptive"},
-            output_config={"effort": settings.anthropic_effort},
-            betas=["server-side-fallback-2026-07-01"],
-            fallbacks="default",
-        ) as stream:
-            async for event in stream:
-                if event.type == "content_block_delta" and event.delta.type == "text_delta":
-                    yield "token", {"text": event.delta.text}
-            final = await stream.get_final_message()
+        received: list[types.Part] = []
+        usage = None
 
-        logger.info(
-            "토큰 사용 model=%s in=%s out=%s",
-            settings.anthropic_model,
-            final.usage.input_tokens,
-            final.usage.output_tokens,
+        stream = await client.aio.models.generate_content_stream(
+            model=settings.gemini_model, contents=contents, config=config
         )
+        async for chunk in stream:
+            if chunk.usage_metadata is not None:
+                usage = chunk.usage_metadata
+            if not chunk.candidates:
+                continue
+            for part in chunk.candidates[0].content.parts or []:
+                received.append(part)
+                if part.text:
+                    yield "token", {"text": part.text}
 
-        if final.stop_reason == "refusal":
-            logger.warning("모델이 응답을 거부했습니다: %s", final.stop_details)
+        if usage is not None:
+            logger.info(
+                "토큰 사용 model=%s in=%s out=%s",
+                settings.gemini_model,
+                usage.prompt_token_count,
+                usage.candidates_token_count,
+            )
+
+        parts = _merge_text(received)
+        if not parts:
+            logger.warning("모델이 빈 응답을 반환했습니다 (차단 가능성): user=%s", user.user_id)
             yield "error", {"message": "이 요청에는 답변할 수 없습니다."}
             return
 
-        messages.append({"role": "assistant", "content": final.content})
+        contents.append(types.Content(role="model", parts=parts))
 
-        tool_uses = [b for b in final.content if b.type == "tool_use"]
-        if not tool_uses:
+        calls = [p.function_call for p in parts if p.function_call is not None]
+        if not calls:
             return
 
-        for block in tool_uses:
-            yield "tool", {"name": block.name}
+        for call in calls:
+            yield "tool", {"name": call.name}
 
         # 도구를 순차가 아니라 동시에 실행한다. 주문 조회와 배송 조회가 함께 필요할 때
         # 대기 시간이 합이 아니라 최댓값이 된다.
         results = await asyncio.gather(
-            *(execute_tool(b.name, b.input, spring, user) for b in tool_uses)
+            *(execute_tool(c.name, dict(c.args or {}), spring, user) for c in calls)
         )
 
-        messages.append(
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "tool_result",
-                        "tool_use_id": block.id,
-                        "content": content,
-                        "is_error": is_error,
-                    }
-                    for block, (content, is_error) in zip(tool_uses, results, strict=True)
+        contents.append(
+            types.Content(
+                role="user",
+                parts=[
+                    types.Part.from_function_response(name=call.name, response=result)
+                    for call, result in zip(calls, results, strict=True)
                 ],
-            }
+            )
         )
 
     logger.warning("MAX_TURNS 도달: user=%s", user.user_id)

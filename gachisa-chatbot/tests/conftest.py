@@ -12,7 +12,7 @@ TEST_SECRET = "test-secret-that-is-at-least-64-bytes-long-for-hs512-algorithm-ok
 def _test_settings(monkeypatch):
     monkeypatch.setenv("JWT_SECRET", TEST_SECRET)
     monkeypatch.setenv("SPRING_BASE_URL", "http://spring.test")
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()

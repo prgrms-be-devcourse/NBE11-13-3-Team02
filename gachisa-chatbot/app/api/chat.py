@@ -5,7 +5,7 @@ import uuid
 from collections.abc import AsyncIterator
 from typing import Annotated, Literal
 
-from anthropic import AsyncAnthropic
+from google import genai
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
@@ -21,11 +21,11 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/chat", tags=["chat"])
 
 
-def get_anthropic_client(request: Request) -> AsyncAnthropic:
-    return request.app.state.anthropic
+def get_genai_client(request: Request) -> genai.Client:
+    return request.app.state.genai
 
 
-AnthropicDep = Annotated[AsyncAnthropic, Depends(get_anthropic_client)]
+GenaiDep = Annotated[genai.Client, Depends(get_genai_client)]
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 
 
@@ -55,7 +55,7 @@ async def stream_chat(
     request: Request,
     user: CurrentUserDep,
     spring: SpringClientDep,
-    client: AnthropicDep,
+    client: GenaiDep,
     settings: SettingsDep,
 ) -> StreamingResponse:
     conversation_id = payload.conversation_id or str(uuid.uuid4())

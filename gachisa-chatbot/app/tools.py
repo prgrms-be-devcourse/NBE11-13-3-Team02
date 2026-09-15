@@ -30,7 +30,6 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                     "description": "가격 정렬. 생략하면 마감임박순",
                 },
             },
-            "additionalProperties": False,
         },
     },
     {
@@ -48,7 +47,6 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                     "description": "가져올 주문 개수(기본 10, 최대 30)",
                 }
             },
-            "additionalProperties": False,
         },
     },
     {
@@ -63,7 +61,6 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                 "order_id": {"type": "integer", "description": "주문 ID"},
             },
             "required": ["order_id"],
-            "additionalProperties": False,
         },
     },
 ]
@@ -160,22 +157,22 @@ _HANDLERS = {
 
 async def execute_tool(
     name: str, args: dict[str, Any], spring: SpringClient, user: CurrentUser
-) -> tuple[str, bool]:
-    """도구를 실행하고 (직렬화된 결과, 오류 여부)를 돌려준다."""
+) -> dict[str, Any]:
+    """도구를 실행하고 모델에 돌려줄 결과 dict를 만든다. 실패는 error 키로 알린다."""
     handler = _HANDLERS.get(name)
     if handler is None:
-        return f"알 수 없는 도구입니다: {name}", True
+        return {"error": f"알 수 없는 도구입니다: {name}"}
 
     try:
         result = await handler(spring, user, args)
     except httpx.HTTPStatusError as e:
         status = e.response.status_code
         if status in (401, 403):
-            return "권한이 없어 조회하지 못했습니다. 본인 정보만 조회할 수 있습니다.", True
+            return {"error": "권한이 없어 조회하지 못했습니다. 본인 정보만 조회할 수 있습니다."}
         if status == 404:
-            return "해당 데이터를 찾을 수 없습니다.", True
-        return f"백엔드 오류({status})로 조회하지 못했습니다.", True
+            return {"error": "해당 데이터를 찾을 수 없습니다."}
+        return {"error": f"백엔드 오류({status})로 조회하지 못했습니다."}
     except httpx.RequestError:
-        return "백엔드에 연결하지 못했습니다.", True
+        return {"error": "백엔드에 연결하지 못했습니다."}
 
-    return json.dumps(result, ensure_ascii=False, default=str), False
+    return {"result": json.loads(json.dumps(result, default=str))}

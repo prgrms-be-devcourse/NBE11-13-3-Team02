@@ -47,17 +47,27 @@ Spring은 챗봇이 도구로 호출하는 짧은 REST 요청만 처리한다.
 
 ## 모델 설정
 
-`claude-opus-5` + adaptive thinking. `ANTHROPIC_EFFORT`는 `low`로 시작한다 — 챗봇은
-지연시간이 중요하고, effort는 4단계에서 평가셋으로 라우팅 정확도를 측정한 뒤 올릴지
-판단할 값이다. 모델이 안전상 응답을 거부하면 서버 측 폴백(`fallbacks="default"`)이
-다른 모델로 자동 우회한다.
+Google Gemini(`gemini-3.8-flash`)를 쓴다. 무료 티어가 있어 팀 프로젝트 기간 동안
+비용 없이 개발할 수 있다는 것이 선택 이유다. 더 아껴야 하면 `GEMINI_MODEL`을
+`gemini-3.5-flash-lite`로 낮춘다.
+
+> **무료 티어 주의:** 무료 티어로 보낸 내용은 Google이 제품 개선에 사용할 수 있다.
+> 실제 사용자 데이터로 운영할 단계가 되면 유료 티어로 올리거나 다른 방안을 정해야 한다.
+> 개발·시연 단계에서 더미 데이터를 쓰는 동안은 문제되지 않는다.
 
 개인정보는 최소한으로만 모델에 넘긴다. 배송 조회는 운송장·택배사·예상일만 보내고
 수령인 연락처와 상세주소는 제외한다([tools.py](app/tools.py) `_get_order_delivery`).
 
+턴마다 토큰 사용량이 로그에 남는다.
+
+```
+INFO app.agent: 토큰 사용 model=gemini-3.8-flash in=1431 out=87
+```
+
 ## 실행
 
 `JWT_SECRET`은 Spring의 `application-local.yml`에 있는 `jwt.secret`과 **완전히 동일해야** 한다.
+`GEMINI_API_KEY`는 https://aistudio.google.com/apikey 에서 발급받는다(무료).
 
 ```bash
 cp .env.example .env   # JWT_SECRET을 Spring과 맞춘다
@@ -76,7 +86,7 @@ uv run pytest
 로컬 수동 확인용 토큰 발급:
 
 ```bash
-uv run python scripts/dev_token.py 7 "안세호" USER
+uv run python scripts/dev_token.py 7 "안세호" ROLE_BUYER
 ```
 
 ## API
@@ -112,5 +122,6 @@ uv run python scripts/dev_token.py 7 "안세호" USER
 - [ ] 3단계: FAQ 문서 RAG 도구 추가
 - [ ] 4단계: 평가셋 50문항으로 도구 라우팅 정확도 측정
 
-**아직 실제 Anthropic API로 검증하지 않았다.** 에이전트 루프·도구 호출·SSE·위젯은
+**아직 실제 Gemini API로 검증하지 않았다.** 에이전트 루프·도구 호출·SSE·위젯은
 가짜 LLM으로 브라우저까지 확인했지만, 실제 모델 응답은 API 키를 넣어야 확인된다.
+키는 https://aistudio.google.com/apikey 에서 무료로 발급받는다.

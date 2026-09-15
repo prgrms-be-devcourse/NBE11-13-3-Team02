@@ -7,16 +7,9 @@ from app.agent import MAX_TURNS, run_agent
 from app.config import get_settings
 from app.security import CurrentUser
 from app.spring_client import SpringClient
-from tests.fakes import (
-    FakeAnthropic,
-    FakeStream,
-    final_message,
-    text_block,
-    text_delta,
-    tool_use_block,
-)
+from tests.fakes import FakeGenai, call_part, call_turn, text_turn, turn
 
-USER = CurrentUser(user_id=7, name="안세호", role="USER", access_token="tok-abc")
+USER = CurrentUser(user_id=7, name="안세호", role="ROLE_BUYER", access_token="tok-abc")
 
 
 def spring_stub(handler) -> SpringClient:
@@ -39,6 +32,11 @@ async def collect(client, spring, message="안녕", history=None):
     ):
         events.append((event, data))
     return events
+
+
+def function_responses(call):
+    """한 API 호출의 contents 마지막 항목에서 function_response 파트를 꺼낸다."""
+    return [p.function_response for p in call["contents"][-1].parts if p.function_response]
 
 
 @pytest.fixture
@@ -87,14 +85,7 @@ def orders_spring():
 
 
 async def test_도구가_필요없으면_텍스트만_스트리밍한다(orders_spring):
-    client = FakeAnthropic(
-        [
-            FakeStream(
-                [text_delta("안녕"), text_delta("하세요")],
-                final_message([text_block("안녕하세요")], "end_turn"),
-            )
-        ]
-    )
+    client = FakeGenai([text_turn("안녕", "하세요")])
 
     events = await collect(client, orders_spring)
 
@@ -102,111 +93,64 @@ async def test_도구가_필요없으면_텍스트만_스트리밍한다(orders_
     assert "".join(d["text"] for _, d in events) == "안녕하세요"
 
 
-async def test_도구_결과가_다음_요청에_tool_result로_실린다(orders_spring):
-    client = FakeAnthropic(
-        [
-            FakeStream(
-                [],
-                final_message(
-                    [tool_use_block("tu_1", "get_my_orders", {})], "tool_use"
-                ),
-            ),
-            FakeStream(
-                [text_delta("배송 중입니다")],
-                final_message([text_block("배송 중입니다")], "end_turn"),
-            ),
-        ]
-    )
+async def test_도구_결과가_다음_요청에_function_response로_실린다(orders_spring):
+    client = FakeGenai([call_turn("get_my_orders"), text_turn("배송 중입니다")])
 
     events = await collect(client, orders_spring, "내 주문 어디까지 왔어?")
 
     assert ("tool", {"name": "get_my_orders"}) in events
 
-    second_request_messages = client.calls[1]["messages"]
-    tool_result = second_request_messages[-1]["content"][0]
-    assert tool_result["type"] == "tool_result"
-    assert tool_result["tool_use_id"] == "tu_1"
-    assert tool_result["is_error"] is False
-    assert "무선 이어폰" in tool_result["content"]
+    responses = function_responses(client.calls[1])
+    assert len(responses) == 1
+    assert responses[0].name == "get_my_orders"
+    assert "무선 이어폰" in json.dumps(responses[0].response, ensure_ascii=False)
 
 
 async def test_같은_턴의_여러_도구는_한_메시지로_모아_보낸다(orders_spring):
-    client = FakeAnthropic(
+    client = FakeGenai(
         [
-            FakeStream(
-                [],
-                final_message(
-                    [
-                        tool_use_block("tu_1", "get_my_orders", {}),
-                        tool_use_block("tu_2", "get_order_delivery", {"order_id": 11}),
-                    ],
-                    "tool_use",
-                ),
+            turn(
+                [
+                    call_part("get_my_orders", {}),
+                    call_part("get_order_delivery", {"order_id": 11}),
+                ]
             ),
-            FakeStream(
-                [text_delta("완료")], final_message([text_block("완료")], "end_turn")
-            ),
+            text_turn("완료"),
         ]
     )
 
     await collect(client, orders_spring, "주문이랑 배송 알려줘")
 
-    results = client.calls[1]["messages"][-1]["content"]
-    assert len(results) == 2
-    assert [r["tool_use_id"] for r in results] == ["tu_1", "tu_2"]
+    responses = function_responses(client.calls[1])
+    assert [r.name for r in responses] == ["get_my_orders", "get_order_delivery"]
 
 
 async def test_배송조회는_연락처와_상세주소를_모델에_보내지_않는다(orders_spring):
-    client = FakeAnthropic(
-        [
-            FakeStream(
-                [],
-                final_message(
-                    [tool_use_block("tu_1", "get_order_delivery", {"order_id": 11})],
-                    "tool_use",
-                ),
-            ),
-            FakeStream(
-                [text_delta("배송 중")], final_message([text_block("배송 중")], "end_turn")
-            ),
-        ]
+    client = FakeGenai(
+        [call_turn("get_order_delivery", {"order_id": 11}), text_turn("배송 중")]
     )
 
     await collect(client, orders_spring, "배송 조회")
 
-    payload = client.calls[1]["messages"][-1]["content"][0]["content"]
+    payload = json.dumps(function_responses(client.calls[1])[0].response, ensure_ascii=False)
     assert "1234567890" in payload  # 운송장은 필요하다
     assert "010-1234-5678" not in payload
     assert "101동 1203호" not in payload
     assert "테헤란로" not in payload
 
 
-async def test_도구가_실패하면_is_error로_모델에_알린다():
+async def test_도구가_실패하면_error_키로_모델에_알린다():
     spring = spring_stub(lambda request: httpx.Response(403, json={"message": "forbidden"}))
-    client = FakeAnthropic(
-        [
-            FakeStream(
-                [],
-                final_message(
-                    [tool_use_block("tu_1", "get_my_orders", {})], "tool_use"
-                ),
-            ),
-            FakeStream(
-                [text_delta("조회 실패")],
-                final_message([text_block("조회 실패")], "end_turn"),
-            ),
-        ]
-    )
+    client = FakeGenai([call_turn("get_my_orders"), text_turn("조회 실패")])
 
     await collect(client, spring, "내 주문")
 
-    tool_result = client.calls[1]["messages"][-1]["content"][0]
-    assert tool_result["is_error"] is True
-    assert "권한" in tool_result["content"]
+    response = function_responses(client.calls[1])[0].response
+    assert "권한" in response["error"]
 
 
-async def test_모델이_거부하면_error_이벤트로_끝난다(orders_spring):
-    client = FakeAnthropic([FakeStream([], final_message([], "refusal"))])
+async def test_빈_응답이면_error_이벤트로_끝난다(orders_spring):
+    client = FakeGenai([turn([])])
 
     events = await collect(client, orders_spring)
 
@@ -214,17 +158,7 @@ async def test_모델이_거부하면_error_이벤트로_끝난다(orders_spring
 
 
 async def test_도구_루프가_MAX_TURNS를_넘지_않는다(orders_spring):
-    client = FakeAnthropic(
-        [
-            FakeStream(
-                [],
-                final_message(
-                    [tool_use_block(f"tu_{i}", "get_my_orders", {})], "tool_use"
-                ),
-            )
-            for i in range(MAX_TURNS)
-        ]
-    )
+    client = FakeGenai([call_turn("get_my_orders") for _ in range(MAX_TURNS)])
 
     events = await collect(client, orders_spring, "무한 루프 유도")
 
@@ -232,10 +166,8 @@ async def test_도구_루프가_MAX_TURNS를_넘지_않는다(orders_spring):
     assert events[-1][0] == "error"
 
 
-async def test_대화_기록이_요청_앞에_붙는다(orders_spring):
-    client = FakeAnthropic(
-        [FakeStream([text_delta("네")], final_message([text_block("네")], "end_turn"))]
-    )
+async def test_대화_기록은_model_역할로_변환된다(orders_spring):
+    client = FakeGenai([text_turn("네")])
 
     await collect(
         client,
@@ -247,9 +179,9 @@ async def test_대화_기록이_요청_앞에_붙는다(orders_spring):
         ],
     )
 
-    messages = client.calls[0]["messages"]
-    assert [m["role"] for m in messages] == ["user", "assistant", "user"]
-    assert messages[-1]["content"] == "그거 얼마야?"
+    contents = client.calls[0]["contents"]
+    assert [c.role for c in contents] == ["user", "model", "user"]
+    assert contents[-1].parts[0].text == "그거 얼마야?"
 
 
 async def test_검색_도구는_할인가_필터를_spring_쿼리로_넘긴다():
@@ -259,24 +191,13 @@ async def test_검색_도구는_할인가_필터를_spring_쿼리로_넘긴다()
         seen.update(dict(request.url.params))
         return httpx.Response(200, json={"result": {"content": []}})
 
-    client = FakeAnthropic(
+    client = FakeGenai(
         [
-            FakeStream(
-                [],
-                final_message(
-                    [
-                        tool_use_block(
-                            "tu_1",
-                            "search_group_buys",
-                            {"keyword": "노트북", "max_price": 500000, "status": "RECRUITING"},
-                        )
-                    ],
-                    "tool_use",
-                ),
+            call_turn(
+                "search_group_buys",
+                {"keyword": "노트북", "max_price": 500000, "status": "RECRUITING"},
             ),
-            FakeStream(
-                [text_delta("없어요")], final_message([text_block("없어요")], "end_turn")
-            ),
+            text_turn("없어요"),
         ]
     )
 
@@ -288,16 +209,13 @@ async def test_검색_도구는_할인가_필터를_spring_쿼리로_넘긴다()
     assert "minPrice" not in seen  # None인 필터는 쿼리에서 빠져야 한다
 
 
-async def test_요청에_현재_모델과_폴백_설정이_실린다(orders_spring):
-    client = FakeAnthropic(
-        [FakeStream([text_delta("네")], final_message([text_block("네")], "end_turn"))]
-    )
+async def test_요청에_모델과_도구_선언이_실린다(orders_spring):
+    client = FakeGenai([text_turn("네")])
 
     await collect(client, orders_spring)
 
     call = client.calls[0]
-    assert call["model"] == "claude-opus-5"
-    assert call["thinking"] == {"type": "adaptive"}
-    assert call["fallbacks"] == "default"
-    assert "server-side-fallback-2026-07-01" in call["betas"]
-    assert json.dumps(call["tools"], ensure_ascii=False)  # 도구 스키마가 직렬화 가능한지
+    assert call["model"] == "gemini-3.8-flash"
+    declared = {f.name for t in call["config"].tools for f in t.function_declarations}
+    assert declared == {"search_group_buys", "get_my_orders", "get_order_delivery"}
+    assert "가치사" in call["config"].system_instruction

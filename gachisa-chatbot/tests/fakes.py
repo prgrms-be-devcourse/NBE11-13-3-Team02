@@ -1,64 +1,62 @@
 from types import SimpleNamespace
 
+from google.genai import types
 
-def text_delta(text: str) -> SimpleNamespace:
+
+def text_part(text: str) -> types.Part:
+    return types.Part.from_text(text=text)
+
+
+def call_part(name: str, args: dict) -> types.Part:
+    return types.Part(function_call=types.FunctionCall(name=name, args=args))
+
+
+def chunk(parts: list[types.Part]) -> SimpleNamespace:
     return SimpleNamespace(
-        type="content_block_delta",
-        delta=SimpleNamespace(type="text_delta", text=text),
+        candidates=[SimpleNamespace(content=SimpleNamespace(parts=parts))],
+        usage_metadata=SimpleNamespace(prompt_token_count=100, candidates_token_count=20),
     )
 
 
-def text_block(text: str) -> SimpleNamespace:
-    return SimpleNamespace(type="text", text=text)
+def turn(*parts_per_chunk: list[types.Part]) -> list[SimpleNamespace]:
+    """한 번의 API 호출이 흘려보낼 청크 목록."""
+    return [chunk(parts) for parts in parts_per_chunk]
 
 
-def tool_use_block(tool_id: str, name: str, args: dict) -> SimpleNamespace:
-    return SimpleNamespace(type="tool_use", id=tool_id, name=name, input=args)
+def text_turn(*fragments: str) -> list[SimpleNamespace]:
+    return turn(*([text_part(f)] for f in fragments))
 
 
-def final_message(content: list, stop_reason: str) -> SimpleNamespace:
-    return SimpleNamespace(
-        content=content,
-        stop_reason=stop_reason,
-        stop_details=None,
-        usage=SimpleNamespace(input_tokens=100, output_tokens=20),
-    )
+def call_turn(name: str, args: dict | None = None) -> list[SimpleNamespace]:
+    return turn([call_part(name, args or {})])
 
 
-class FakeStream:
-    def __init__(self, events: list, final: SimpleNamespace) -> None:
-        self._events = events
-        self._final = final
-
-    async def __aenter__(self) -> "FakeStream":
-        return self
-
-    async def __aexit__(self, *exc_info: object) -> bool:
-        return False
+class _AsyncChunks:
+    def __init__(self, chunks: list) -> None:
+        self._chunks = chunks
 
     def __aiter__(self):
         async def generate():
-            for event in self._events:
-                yield event
+            for item in self._chunks:
+                yield item
 
         return generate()
 
-    async def get_final_message(self) -> SimpleNamespace:
-        return self._final
 
+class FakeGenai:
+    """client.aio.models.generate_content_stream만 흉내 내는 스텁."""
 
-class FakeAnthropic:
-    """client.beta.messages.stream(...)만 흉내 내는 스텁. 턴마다 미리 준비한 응답을 돌려준다."""
-
-    def __init__(self, turns: list[FakeStream]) -> None:
+    def __init__(self, turns: list[list]) -> None:
         self._turns = list(turns)
         self.calls: list[dict] = []
-        self.beta = SimpleNamespace(messages=SimpleNamespace(stream=self._stream))
+        self.aio = SimpleNamespace(
+            models=SimpleNamespace(generate_content_stream=self._stream)
+        )
 
-    def _stream(self, **kwargs) -> FakeStream:
-        # run_agent는 턴마다 같은 messages 리스트에 append 한다. 참조를 그대로 들고 있으면
+    async def _stream(self, *, model, contents, config) -> _AsyncChunks:
+        # run_agent는 턴마다 같은 contents 리스트에 append 한다. 참조를 그대로 들고 있으면
         # 나중에 검사할 때 모든 호출이 최종 상태로 보이므로 호출 시점 스냅샷을 남긴다.
-        self.calls.append({**kwargs, "messages": list(kwargs["messages"])})
+        self.calls.append({"model": model, "contents": list(contents), "config": config})
         if not self._turns:
             raise AssertionError("예상보다 많은 API 호출이 발생했습니다.")
-        return self._turns.pop(0)
+        return _AsyncChunks(self._turns.pop(0))

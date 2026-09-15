@@ -4,17 +4,10 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from app.api.chat import get_anthropic_client
+from app.api.chat import get_genai_client
 from app.main import app
 from app.spring_client import SpringClient, get_spring_client
-from tests.fakes import (
-    FakeAnthropic,
-    FakeStream,
-    final_message,
-    text_block,
-    text_delta,
-    tool_use_block,
-)
+from tests.fakes import FakeGenai, call_turn, text_turn
 
 
 @pytest.fixture
@@ -56,15 +49,8 @@ def test_만료된_토큰은_401(client, make_token):
 
 
 def test_스트림은_start_token_done_순서로_내려온다(client, make_token):
-    fake = FakeAnthropic(
-        [
-            FakeStream(
-                [text_delta("배송 "), text_delta("중입니다")],
-                final_message([text_block("배송 중입니다")], "end_turn"),
-            )
-        ]
-    )
-    app.dependency_overrides[get_anthropic_client] = lambda: fake
+    fake = FakeGenai([text_turn("배송 ", "중입니다")])
+    app.dependency_overrides[get_genai_client] = lambda: fake
 
     try:
         response = client.post(
@@ -87,20 +73,13 @@ def test_스트림은_start_token_done_순서로_내려온다(client, make_token
 
 
 def test_도구를_쓰면_tool_이벤트가_먼저_나간다(client, make_token):
-    fake = FakeAnthropic(
-        [
-            FakeStream([], final_message([tool_use_block("tu_1", "get_my_orders", {})], "tool_use")),
-            FakeStream(
-                [text_delta("배송 중")], final_message([text_block("배송 중")], "end_turn")
-            ),
-        ]
-    )
+    fake = FakeGenai([call_turn("get_my_orders"), text_turn("배송 중")])
     stub_spring = SpringClient(
         base_url="http://spring.test",
         timeout=5.0,
         transport=httpx.MockTransport(lambda r: httpx.Response(200, json={"content": []})),
     )
-    app.dependency_overrides[get_anthropic_client] = lambda: fake
+    app.dependency_overrides[get_genai_client] = lambda: fake
     app.dependency_overrides[get_spring_client] = lambda: stub_spring
 
     try:
@@ -119,10 +98,8 @@ def test_도구를_쓰면_tool_이벤트가_먼저_나간다(client, make_token)
 
 
 def test_conversationId는_camelCase_키로_받는다(client, make_token):
-    fake = FakeAnthropic(
-        [FakeStream([text_delta("네")], final_message([text_block("네")], "end_turn"))]
-    )
-    app.dependency_overrides[get_anthropic_client] = lambda: fake
+    fake = FakeGenai([text_turn("네")])
+    app.dependency_overrides[get_genai_client] = lambda: fake
 
     try:
         response = client.post(
