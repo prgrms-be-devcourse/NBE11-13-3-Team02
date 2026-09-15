@@ -2,14 +2,14 @@ import { getAccessToken } from './tokenStore'
 
 // EventSource는 Authorization 헤더를 붙일 수 없고 POST도 못 한다.
 // accessToken이 메모리에만 있는 구조라 fetch + ReadableStream으로 SSE를 직접 읽는다.
-export async function streamChat({ message, history = [], conversationId = null, signal, onEvent }) {
+export async function streamChat({ message, history = [], conversationId = null, image = null, signal, onEvent }) {
   const response = await fetch('/chat/stream', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${getAccessToken()}`,
     },
-    body: JSON.stringify({ message, history, conversationId }),
+    body: JSON.stringify({ message, history, conversationId, image }),
     signal,
   })
 

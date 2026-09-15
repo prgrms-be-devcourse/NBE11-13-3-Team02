@@ -1,3 +1,4 @@
+import base64
 import json
 
 import httpx
@@ -170,3 +171,92 @@ def test_spring_호출에_사용자_토큰이_그대로_전달된다(client, mak
     assert seen["url"] == "http://spring.test/api/users/me"
     assert seen["authorization"] == f"Bearer {token}"
     assert response.json()["chatbotResolvedUserId"] == 7
+
+
+def _image_payload(mime_type="image/jpeg", raw=b"\xff\xd8\xff\xdb-fake-jpeg"):
+    return {"mimeType": mime_type, "data": base64.b64encode(raw).decode()}
+
+
+def test_이미지를_보내면_모델_요청에_실린다(client, make_token):
+    fake = FakeGenai([call_turn("search_group_buys", {"keyword": "무선 이어폰"}), text_turn("찾았어요")])
+    stub_spring = SpringClient(
+        base_url="http://spring.test",
+        timeout=5.0,
+        transport=httpx.MockTransport(
+            lambda r: httpx.Response(200, json={"result": {"content": []}})
+        ),
+    )
+    app.dependency_overrides[get_genai_client] = lambda: fake
+    app.dependency_overrides[get_spring_client] = lambda: stub_spring
+
+    try:
+        response = client.post(
+            "/chat/stream",
+            json={"message": "이거 비슷한 거 있어?", "image": _image_payload()},
+            headers={"Authorization": f"Bearer {make_token()}"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    parts = fake.calls[0]["contents"][-1].parts
+    # 이미지가 텍스트보다 앞에 와야 질문이 이미지를 가리키는 맥락이 된다.
+    assert parts[0].inline_data is not None
+    assert parts[0].inline_data.mime_type == "image/jpeg"
+    assert parts[1].text == "이거 비슷한 거 있어?"
+
+
+def test_허용되지_않은_이미지_형식은_422(client, make_token):
+    response = client.post(
+        "/chat/stream",
+        json={"message": "이거 뭐야", "image": _image_payload(mime_type="image/gif")},
+        headers={"Authorization": f"Bearer {make_token()}"},
+    )
+    assert response.status_code == 422
+
+
+def test_base64가_깨졌으면_오류로_끝난다(client, make_token):
+    fake = FakeGenai([text_turn("네")])
+    app.dependency_overrides[get_genai_client] = lambda: fake
+    try:
+        response = client.post(
+            "/chat/stream",
+            json={"message": "이거 뭐야", "image": {"mimeType": "image/png", "data": "!!!not-base64!!!"}},
+            headers={"Authorization": f"Bearer {make_token()}"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert [e for e, _ in _parse_events(response.text)][-1] == "error"
+
+
+def test_4MB를_넘는_이미지는_거부된다(client, make_token):
+    fake = FakeGenai([text_turn("네")])
+    app.dependency_overrides[get_genai_client] = lambda: fake
+    try:
+        response = client.post(
+            "/chat/stream",
+            json={"message": "이거 뭐야", "image": _image_payload(raw=b"x" * (4 * 1024 * 1024 + 1))},
+            headers={"Authorization": f"Bearer {make_token()}"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert [e for e, _ in _parse_events(response.text)][-1] == "error"
+
+
+def test_이미지가_없으면_기존과_동일하게_동작한다(client, make_token):
+    fake = FakeGenai([text_turn("네")])
+    app.dependency_overrides[get_genai_client] = lambda: fake
+    try:
+        client.post(
+            "/chat/stream",
+            json={"message": "안녕"},
+            headers={"Authorization": f"Bearer {make_token()}"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    parts = fake.calls[0]["contents"][-1].parts
+    assert len(parts) == 1
+    assert parts[0].text == "안녕"

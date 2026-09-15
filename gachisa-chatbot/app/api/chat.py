@@ -1,4 +1,6 @@
 import asyncio
+import base64
+import binascii
 import json
 import logging
 import uuid
@@ -8,7 +10,7 @@ from typing import Annotated, Literal
 from google import genai
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pydantic.alias_generators import to_camel
 
 from app.agent import run_agent
@@ -42,6 +44,33 @@ class ChatMessage(BaseModel):
     content: str = Field(min_length=1, max_length=4000)
 
 
+ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp"}
+MAX_IMAGE_BYTES = 4 * 1024 * 1024
+
+
+class ChatImage(BaseModel):
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    mime_type: str
+    data: str  # base64
+
+    @field_validator("mime_type")
+    @classmethod
+    def _allowed_type(cls, value: str) -> str:
+        if value not in ALLOWED_IMAGE_TYPES:
+            raise ValueError(f"지원하지 않는 이미지 형식입니다: {value}")
+        return value
+
+    def decode(self) -> bytes:
+        try:
+            raw = base64.b64decode(self.data, validate=True)
+        except binascii.Error as e:
+            raise ValueError("이미지 디코딩에 실패했습니다.") from e
+        if len(raw) > MAX_IMAGE_BYTES:
+            raise ValueError("이미지가 너무 큽니다(최대 4MB).")
+        return raw
+
+
 class ChatRequest(BaseModel):
     # 프로젝트의 다른 API와 맞춰 요청/응답 JSON 키를 camelCase로 통일한다.
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
@@ -51,6 +80,8 @@ class ChatRequest(BaseModel):
     # 대화 기록은 클라이언트가 보낸다(서버 무상태). 도구는 언제나 토큰의 주인 데이터만
     # 반환하므로, 기록을 조작해도 남의 정보에는 접근할 수 없다.
     history: list[ChatMessage] = Field(default_factory=list, max_length=20)
+    # 업로드는 신뢰 경계다. 형식과 크기를 서버에서 검증한다.
+    image: ChatImage | None = None
 
 
 def _sse(event: str, data: dict) -> str:
@@ -80,6 +111,7 @@ async def stream_chat(
                 faq=faq,
                 message=payload.message,
                 history=[m.model_dump() for m in payload.history],
+                image=(payload.image.decode(), payload.image.mime_type) if payload.image else None,
             )
             async for event, data in agent_events:
                 if await request.is_disconnected():
