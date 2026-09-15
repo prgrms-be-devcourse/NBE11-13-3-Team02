@@ -4,12 +4,12 @@
 -- (update + always 조합은 users.email 등 unique 컬럼에서 Duplicate entry 로 기동이 실패합니다.)
 
 -- 비밀번호는 전부 '1234' (BCryptPasswordEncoder로 해시한 값)
--- provider를 명시 안 하면 MySQL이 NOT NULL enum 컬럼에 임의의 기본값(정의 순서상 첫 값)을 넣어버려서 반드시 명시해야 함
-INSERT INTO users (email, password, name, role, provider, created_at) VALUES
-                                                                 ('buyer1@test.com', '$2a$10$WtWTKE7oj11ctlGs9G5wNuLSBbSapVXma07TWX3Qf9ZcVcTye4N1y', '구매자1', 'ROLE_BUYER', 'LOCAL', NOW()),
-                                                                 ('buyer2@test.com', '$2a$10$WtWTKE7oj11ctlGs9G5wNuLSBbSapVXma07TWX3Qf9ZcVcTye4N1y', '구매자2', 'ROLE_BUYER', 'LOCAL', NOW()),
-                                                                 ('seller1@test.com', '$2a$10$WtWTKE7oj11ctlGs9G5wNuLSBbSapVXma07TWX3Qf9ZcVcTye4N1y', '판매자1', 'ROLE_SELLER', 'LOCAL', NOW()),
-                                                                 ('admin@test.com',  '$2a$10$WtWTKE7oj11ctlGs9G5wNuLSBbSapVXma07TWX3Qf9ZcVcTye4N1y', '관리자',  'ROLE_ADMIN', 'LOCAL', NOW());
+-- provider/status를 명시 안 하면 MySQL이 NOT NULL enum 컬럼에 임의의 기본값(정의 순서상 첫 값)을 넣어버려서 반드시 명시해야 함
+INSERT INTO users (email, password, name, role, provider, created_at, status) VALUES
+                                                                 ('buyer1@test.com', '$2a$10$WtWTKE7oj11ctlGs9G5wNuLSBbSapVXma07TWX3Qf9ZcVcTye4N1y', '구매자1', 'ROLE_BUYER', 'LOCAL', NOW(), 'ACTIVE'),
+                                                                 ('buyer2@test.com', '$2a$10$WtWTKE7oj11ctlGs9G5wNuLSBbSapVXma07TWX3Qf9ZcVcTye4N1y', '구매자2', 'ROLE_BUYER', 'LOCAL', NOW(), 'ACTIVE'),
+                                                                 ('seller1@test.com', '$2a$10$WtWTKE7oj11ctlGs9G5wNuLSBbSapVXma07TWX3Qf9ZcVcTye4N1y', '판매자1', 'ROLE_SELLER', 'LOCAL', NOW(), 'ACTIVE'),
+                                                                 ('admin@test.com',  '$2a$10$WtWTKE7oj11ctlGs9G5wNuLSBbSapVXma07TWX3Qf9ZcVcTye4N1y', '관리자',  'ROLE_ADMIN', 'LOCAL', NOW(), 'ACTIVE');
 
 INSERT INTO category (name, parent_id) VALUES
                                            ('생활/리빙', NULL),

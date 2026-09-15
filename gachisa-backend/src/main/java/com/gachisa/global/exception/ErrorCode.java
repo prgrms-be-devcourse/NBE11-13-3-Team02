@@ -86,7 +86,13 @@ public enum ErrorCode {
     OAUTH_PROVIDER_ERROR(HttpStatus.BAD_GATEWAY, "소셜 로그인 제공자와 통신 중 오류가 발생했습니다."),
 
     // User
-    USER_NOT_FOUND(HttpStatus.NOT_FOUND, "사용자를 찾을 수 없습니다.");
+    USER_NOT_FOUND(HttpStatus.NOT_FOUND, "사용자를 찾을 수 없습니다."),
+    ACCOUNT_SUSPENDED(HttpStatus.FORBIDDEN, "정지된 계정입니다. 관리자에게 문의해주세요."),
+    ACCOUNT_WITHDRAWN(HttpStatus.FORBIDDEN, "탈퇴한 계정입니다."),
+    ACCOUNT_ALREADY_SUSPENDED(HttpStatus.CONFLICT, "이미 정지된 계정입니다."),
+    ACCOUNT_NOT_SUSPENDED(HttpStatus.CONFLICT, "정지된 계정이 아닙니다."),
+    ACCOUNT_ALREADY_WITHDRAWN(HttpStatus.CONFLICT, "이미 탈퇴한 계정입니다."),
+    ADMIN_ACCOUNT_NOT_MANAGEABLE(HttpStatus.FORBIDDEN, "관리자 계정은 정지/탈퇴 대상이 될 수 없습니다.");
 
     private final HttpStatus status;
     private final String message;

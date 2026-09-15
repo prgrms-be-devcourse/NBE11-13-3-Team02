@@ -17,6 +17,7 @@ import com.gachisa.participation.entity.ParticipationStatus;
 import com.gachisa.participation.repository.ParticipationRepository;
 import com.gachisa.product.entity.Product;
 import com.gachisa.user.entity.User;
+import com.gachisa.user.entity.UserRole;
 import com.gachisa.user.repository.UserRepository;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -47,7 +48,7 @@ class ParticipationServiceTest {
 
     @Test
     void repeatedParticipationReturnsExistingParticipationWithoutIncreasingCount() {
-        User user = User.builder().email("buyer@test.com").name("구매자").build();
+        User user = User.of("buyer@test.com", null, "구매자", UserRole.ROLE_BUYER, null, null, LocalDateTime.now());
         ReflectionTestUtils.setField(user, "id", 1L);
         given(product.getName()).willReturn("공동구매 상품");
 
