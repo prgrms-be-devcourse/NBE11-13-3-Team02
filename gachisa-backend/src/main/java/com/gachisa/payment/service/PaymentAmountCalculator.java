@@ -22,7 +22,7 @@ public class PaymentAmountCalculator {
         ProductPaymentInfo product = productService.getPaymentInfo(groupBuy.productId());
         BigDecimal discountMultiplier = BigDecimal.ONE.subtract(groupBuy.discountRate());
 
-        return BigDecimal.valueOf(product.basePrice())
+        return BigDecimal.valueOf(product.getBasePrice())
                 .multiply(discountMultiplier)
                 .multiply(BigDecimal.valueOf(participation.quantity()))
                 .setScale(0, RoundingMode.HALF_UP)

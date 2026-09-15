@@ -45,7 +45,7 @@ public class OrderService {
 
         GroupBuyPaymentInfo groupBuy = groupBuyService.getPaymentInfo(command.groupBuyId());
         ProductResponse product = productService.getProduct(groupBuy.productId());
-        int originalAmount = Math.multiplyExact(product.basePrice(), command.quantity());
+        int originalAmount = Math.multiplyExact(product.getBasePrice(), command.quantity());
         int discountAmount = originalAmount - command.amount();
         if (discountAmount < 0) {
             throw new CustomException(ErrorCode.PAYMENT_AMOUNT_MISMATCH);
@@ -57,11 +57,11 @@ public class OrderService {
                 .paymentId(command.paymentId())
                 .buyerId(command.buyerId())
                 .groupBuyId(command.groupBuyId())
-                .productId(product.id())
-                .productName(product.name())
-                .productImageUrl(product.imageUrl())
+                .productId(product.getId())
+                .productName(product.getName())
+                .productImageUrl(product.getImageUrl())
                 .quantity(command.quantity())
-                .basePrice(product.basePrice())
+                .basePrice(product.getBasePrice())
                 .discountRate(groupBuy.discountRate())
                 .discountAmount(discountAmount)
                 .amount(command.amount())
