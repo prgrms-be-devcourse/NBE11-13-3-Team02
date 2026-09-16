@@ -13,7 +13,7 @@ import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutline'
 import CloseIcon from '@mui/icons-material/Close'
 import SendIcon from '@mui/icons-material/Send'
 import ImageOutlinedIcon from '@mui/icons-material/ImageOutlined'
-import { streamChat } from '../api/chatApi'
+import { getChatUsage, streamChat } from '../api/chatApi'
 import { resizeImage } from '../utils/resizeImage'
 import { useAuth } from '../context/AuthContext.jsx'
 
@@ -35,6 +35,7 @@ export default function ChatWidget() {
   const [activeTool, setActiveTool] = useState(null)
   const [error, setError] = useState('')
   const [image, setImage] = useState(null)
+  const [usage, setUsage] = useState(null)
   const conversationIdRef = useRef(null)
   const abortRef = useRef(null)
   const bottomRef = useRef(null)
@@ -46,6 +47,14 @@ export default function ChatWidget() {
 
   // 패널을 닫거나 화면을 떠나면 진행 중인 스트림을 끊는다.
   useEffect(() => () => abortRef.current?.abort(), [])
+
+  // 패널을 열 때 오늘 사용량을 한 번 불러온다. 이후로는 대화 중 usage 이벤트로 갱신된다.
+  useEffect(() => {
+    if (!open) return
+    getChatUsage()
+      .then(setUsage)
+      .catch(() => {})
+  }, [open])
 
   const closePanel = useCallback(() => {
     abortRef.current?.abort()
@@ -96,6 +105,8 @@ export default function ChatWidget() {
           } else if (event === 'error') {
             setError(data.message)
           }
+          // usage 이벤트는 서버 로그/향후 실시간 표시용으로 남겨 두고, 화면 표시는
+          // 아래 finally에서 다시 조회한 정확한 값(메시지 횟수 포함)으로 갱신한다.
         },
       })
     } catch (e) {
@@ -106,6 +117,9 @@ export default function ChatWidget() {
       setBusy(false)
       setActiveTool(null)
       abortRef.current = null
+      getChatUsage()
+        .then(setUsage)
+        .catch(() => {})
     }
   }, [input, busy, messages, image])
 
@@ -167,9 +181,17 @@ export default function ChatWidget() {
         justifyContent="space-between"
         sx={{ px: 2, py: 1.5, bgcolor: 'primary.main', color: 'primary.contrastText' }}
       >
-        <Typography variant="subtitle1" fontWeight={700}>
-          가치사 도우미
-        </Typography>
+        <Stack>
+          <Typography variant="subtitle1" fontWeight={700}>
+            가치사 도우미
+          </Typography>
+          {usage && (
+            <Typography variant="caption" sx={{ opacity: 0.85 }}>
+              오늘 {usage.dailyMessagesUsed}/{usage.dailyMessageLimit}회 ·{' '}
+              {(usage.dailyInputTokens + usage.dailyOutputTokens).toLocaleString()} 토큰
+            </Typography>
+          )}
+        </Stack>
         <IconButton size="small" onClick={closePanel} sx={{ color: 'inherit' }} aria-label="챗봇 닫기">
           <CloseIcon fontSize="small" />
         </IconButton>

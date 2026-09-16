@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api import chat
 from app.config import get_settings
 from app.rag import FaqIndex
+from app.rate_limit import ChatUsageLimiter
 from app.spring_client import SpringClient
 
 logging.basicConfig(level=logging.INFO)
@@ -23,6 +24,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     )
     app.state.genai = genai.Client(api_key=settings.gemini_api_key)
     app.state.faq = await FaqIndex.build(app.state.genai)
+    app.state.chat_usage_limiter = ChatUsageLimiter(
+        burst_capacity=settings.chat_burst_capacity,
+        refill_per_minute=settings.chat_refill_per_minute,
+        daily_message_limit=settings.chat_daily_message_limit,
+    )
     yield
     await app.state.spring_client.aclose()
 

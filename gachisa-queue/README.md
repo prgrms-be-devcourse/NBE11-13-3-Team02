@@ -56,6 +56,28 @@ core(gachisa-backend)에서 분리한 결제 대기열 서비스. Kotlin + 코�
 `/internal` 은 브라우저에 열리면 남의 대기열을 조작할 수 있다. 네트워크 격리가 1차 방어이고
 `InternalTokenFilter`가 2차 방어다.
 
+## 공개 API 레이트 리밋
+
+공개 API(`/api/**`)는 토큰 버킷으로 보호한다(`RateLimitFilter`). `/internal/**`은
+이미 공유 시크릿으로 잠겨 있고 core만 호출하므로 대상이 아니다.
+
+**왜 고정 윈도가 아니라 토큰 버킷인가.** "1분에 N회"식 고정 윈도는 창 경계에서
+순간적으로 2N회까지 새어 나갈 수 있고(창이 바뀌는 순간 양쪽에서 최대치를 쓰면),
+정상적인 폴링 패턴을 인위적으로 끊기도 한다. 토큰 버킷은 평균 속도만 억제하면서
+순간적인 burst는 허용한다.
+
+**용량과 보충 속도는 실제 트래픽에서 골랐다.** 프론트엔드가 결제 대기 중 1초
+간격으로 상태를 폴링한다(`GroupBuyCheckoutPage.waitForAdmission`). 기본값
+용량 5 / 초당 1.2 보충은 그 폴링을 계속 허용하면서, 짧은 시간에 수십 번씩
+두드리는 남용은 막는다.
+
+로그인한 사용자는 사용자 단위로, 토큰이 없거나 잘못됐으면 IP 단위로 제한한다.
+초과하면 `429 Too Many Requests` + `Retry-After` 헤더를 돌려준다.
+
+버킷은 프로세스 메모리에 사용자/IP별로 하나씩 쌓인다. 인스턴스 하나로 운영하는
+지금 구성에서는 문제없지만, 여러 인스턴스로 늘리면 어느 인스턴스로 가느냐에 따라
+한도가 갈라진다 — 그때는 Redis 같은 공유 저장소로 옮겨야 한다.
+
 ## core 쪽에서 선행된 변경
 
 `PaymentConfirmationStateService.prepare()`가 `PESSIMISTIC_WRITE` 락을 쥔 채
@@ -65,7 +87,18 @@ core(gachisa-backend)에서 분리한 결제 대기열 서비스. Kotlin + 코�
 
 ## 실행
 
-`JWT_SECRET`은 core의 `jwt.secret`과 완전히 동일해야 한다.
+JWT 시크릿은 core의 `jwt.secret`과 완전히 동일해야 한다. 한 글자라도 다르면
+core가 발급한 토큰을 여기서 거부한다.
+
+루트에서 `./setup.sh`를 한 번 실행하면 `src/main/resources/application-local.yml`이
+core와 같은 값으로 생성된다(`.gitignore` 대상). 그 뒤로는 환경변수 없이 뜬다 —
+IDE 실행 버튼으로도, 아래 명령으로도 동작한다.
+
+```bash
+./gradlew bootRun
+```
+
+환경변수를 주면 그쪽이 우선한다(`run.sh`가 이 경로를 쓴다).
 
 ```bash
 JWT_SECRET=<core와 동일> QUEUE_INTERNAL_TOKEN=<공유 시크릿> ./gradlew bootRun
@@ -87,6 +120,7 @@ JWT_SECRET=<core와 동일> QUEUE_INTERNAL_TOKEN=<공유 시크릿> ./gradlew bo
 - [x] core의 인프로세스 QueueService를 HTTP 클라이언트로 교체
 - [x] core에 internal API 2개 추가, queue 패키지 제거
 - [x] 프론트엔드 프록시 분기
+- [x] 공개 API 토큰 버킷 레이트 리밋
 
 실제 core(MySQL+Redis)와 이 서비스를 함께 띄워 확인한 것:
 

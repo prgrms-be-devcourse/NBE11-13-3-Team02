@@ -1,0 +1,7 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="core + queue" type="CompoundRunConfigurationType">
+    <toRun name="core (8080)" type="SpringBootApplicationConfigurationType" />
+    <toRun name="queue (8081)" type="SpringBootApplicationConfigurationType" />
+    <method v="2" />
+  </configuration>
+</component>
