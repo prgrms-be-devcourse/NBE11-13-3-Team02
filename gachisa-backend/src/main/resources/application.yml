@@ -5,10 +5,16 @@ spring:
   profiles:
     active: local
 
+  datasource:
+    url: ${DATABASE_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
   data:
     redis:
-      host: ${REDIS_HOST:localhost}
-      port: ${REDIS_PORT:6379}
+      host: ${REDIS_HOST}
+      port: ${REDIS_PORT}
 
   jpa:
     hibernate:
@@ -32,7 +38,7 @@ file:
   upload-dir: ${FILE_UPLOAD_DIR:./uploads}
 
 jwt:
-  secret: ${JWT_SECRET:change-this-secret-in-local-yml}
+  secret: ${JWT_SECRET}
   access-token-validity: 30m
   refresh-token-validity: 7d
 
@@ -45,15 +51,15 @@ springdoc:
 payment:
   toss:
     base-url: https://api.tosspayments.com
-    secret-key: ${TOSS_SECRET_KEY:}
+    secret-key: ${TOSS_SECRET_KEY}
 
 oauth:
   kakao:
-    client-id: ${KAKAO_CLIENT_ID:}
-    client-secret: ${KAKAO_CLIENT_SECRET:}
+    client-id: ${KAKAO_CLIENT_ID}
+    client-secret: ${KAKAO_CLIENT_SECRET}
   naver:
-    client-id: ${NAVER_CLIENT_ID:}
-    client-secret: ${NAVER_CLIENT_SECRET:}
+    client-id: ${NAVER_CLIENT_ID}
+    client-secret: ${NAVER_CLIENT_SECRET}
 
 logging:
   level:

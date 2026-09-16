@@ -1,18 +1,14 @@
 # 이 파일을 application-local.yml 로 복사해서 각자 로컬에서 사용하세요.
 # application-local.yml 자체는 .gitignore에 등록되어 Git에는 올라가지 않습니다.
+#
+# DB/JWT/OAuth/결제 시크릿은 이제 여기 두지 않습니다 — 전부 Infisical에서 관리합니다.
+# application.yml의 환경변수 플레이스홀더에 기본값이 없어서, 반드시
+# `infisical run --env=dev -- ./gradlew bootRun`으로 실행해야 합니다.
+# (docs/infisical.md 참고)
+#
+# 여기 남은 건 로컬 개발 편의를 위한 설정뿐입니다.
 
 spring:
-  datasource:
-    url: jdbc:mysql://localhost:3306/gachisa?serverTimezone=Asia/Seoul&characterEncoding=UTF-8
-    username: gachisa
-    password: gachisa1234
-    driver-class-name: com.mysql.cj.jdbc.Driver
-
-  data:
-    redis:
-      host: localhost
-      port: 6379
-
   jpa:
     hibernate:
       # create-drop + sql.init.mode: always → 앱 시작마다 스키마/시드 초기화
@@ -24,14 +20,3 @@ spring:
   sql:
     init:
       mode: always
-
-jwt:
-  secret: change-this-to-a-64-byte-or-longer-random-string-for-hs512-algorithm-xxxxx
-
-oauth:
-  kakao:
-    client-id: your-kakao-rest-api-key
-    client-secret: your-kakao-client-secret
-  naver:
-    client-id: your-naver-client-id
-    client-secret: your-naver-client-secret
