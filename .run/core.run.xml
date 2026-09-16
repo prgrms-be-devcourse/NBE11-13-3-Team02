@@ -1,9 +1,20 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="core (8080)" type="SpringBootApplicationConfigurationType" factoryName="Spring Boot">
-    <module name="gachisa-backend.main" />
-    <option name="SPRING_BOOT_MAIN_CLASS" value="com.gachisa.GachisaApplication" />
-    <method v="2">
-      <option name="Make" enabled="true" />
-    </method>
+  <configuration default="false" name="core (8080)" type="ShConfigurationType">
+    <!-- core 가 두 번 뜨면 두 번째 인스턴스가 포트 바인딩에 실패하면서도 종료 훅에서
+         create-drop 의 DROP 을 실행해, 살아 있는 인스턴스의 테이블까지 날려버린다.
+         그래서 Spring 이 뜨기 전에 8080 을 먼저 확인하고 막는다. -->
+    <option name="SCRIPT_TEXT" value="if lsof -ti tcp:8080 >/dev/null 2>&amp;1; then echo; echo '이미 8080 에서 core 가 실행 중입니다. 중복 실행하면 DB 가 초기화됩니다.'; echo '실행 중인 core 를 먼저 멈춘 뒤 다시 누르세요.'; echo; exit 1; fi; infisical run --env=dev -- ./gradlew bootRun --console=plain" />
+    <option name="INDEPENDENT_SCRIPT_PATH" value="true" />
+    <option name="SCRIPT_PATH" value="" />
+    <option name="SCRIPT_OPTIONS" value="" />
+    <option name="INDEPENDENT_SCRIPT_WORKING_DIRECTORY" value="true" />
+    <option name="SCRIPT_WORKING_DIRECTORY" value="$PROJECT_DIR$/gachisa-backend" />
+    <option name="INDEPENDENT_INTERPRETER_PATH" value="true" />
+    <option name="INTERPRETER_PATH" value="/bin/bash" />
+    <option name="INTERPRETER_OPTIONS" value="" />
+    <option name="EXECUTE_IN_TERMINAL" value="true" />
+    <option name="EXECUTE_SCRIPT_FILE" value="false" />
+    <envs />
+    <method v="2" />
   </configuration>
 </component>
