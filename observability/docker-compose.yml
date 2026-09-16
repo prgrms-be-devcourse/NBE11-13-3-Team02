@@ -1,10 +1,27 @@
+name: gachisa-infra
+
+# 평소 개발용: 프론트·백엔드는 Windows에서 실행하고,
+# Redis·Prometheus·Grafana만 Docker에서 실행합니다.
 services:
+  redis:
+    image: redis:7.4-alpine
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
   prometheus:
     image: prom/prometheus:v3.5.1
-    container_name: gachisa-prometheus
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus
+      - --web.enable-remote-write-receiver
     ports:
       - "9090:9090"
     volumes:
@@ -13,7 +30,6 @@ services:
 
   grafana:
     image: grafana/grafana:12.0.2
-    container_name: gachisa-grafana
     ports:
       - "3000:3000"
     environment:
@@ -21,9 +37,12 @@ services:
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
     volumes:
       - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
     depends_on:
       - prometheus
 
 volumes:
+  redis-data:
   prometheus-data:
   grafana-data:

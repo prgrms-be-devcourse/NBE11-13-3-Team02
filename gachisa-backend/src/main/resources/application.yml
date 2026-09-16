@@ -34,7 +34,17 @@ spring:
       max-file-size: 10MB
       max-request-size: 10MB
 
+# 500명의 결제 진입 요청이 동시에 도착해도, 처리 대기 중인 연결을 즉시 거절하지 않도록 합니다.
+# 무제한으로 늘리지 않고 부하 테스트 목표의 2배인 1,000으로 제한합니다.
+server:
+  tomcat:
+    accept-count: 1000
+
 management:
+  metrics:
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
   endpoints:
     web:
       exposure:
