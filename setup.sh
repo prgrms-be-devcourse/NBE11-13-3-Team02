@@ -39,16 +39,9 @@ else
   echo "[backend] application-local.yml 생성함 (시크릿은 여기가 아니라 Infisical에 있습니다)"
 fi
 
-# --- 프론트엔드 설정 파일 + 의존성 설치 ---
-FRONTEND_ENV="$FRONTEND_DIR/.env"
-FRONTEND_ENV_EXAMPLE="$FRONTEND_DIR/.env.example"
-if [ -f "$FRONTEND_ENV" ]; then
-  echo "[frontend] .env 이미 있음 (건너뜀)"
-else
-  cp "$FRONTEND_ENV_EXAMPLE" "$FRONTEND_ENV"
-  echo "[frontend] .env 생성함 - VITE_TOSS_CLIENT_KEY 값을 채워넣어야 결제 테스트가 됩니다"
-fi
-
+# --- 프론트엔드 의존성 설치 ---
+# 시크릿(VITE_TOSS_CLIENT_KEY 등)은 Infisical(gachisa-frontend/.infisical.json)이
+# 단일 출처다. run.sh 가 infisical run 으로 주입하므로 .env 파일은 만들지 않는다.
 echo "[frontend] npm install 실행 중..."
 (cd "$FRONTEND_DIR" && npm install)
 
@@ -157,4 +150,4 @@ if [ -z "$GEMINI_API_KEY" ]; then
   echo "! 챗봇을 쓰려면 .env.local 의 GEMINI_API_KEY 를 채우세요."
   echo "  https://aistudio.google.com/apikey (무료)"
 fi
-echo "! 결제(Toss) 테스트: 백엔드 TOSS_SECRET_KEY 환경변수 + gachisa-frontend/.env 의 VITE_TOSS_CLIENT_KEY"
+echo "! 결제(Toss) 테스트: 백엔드 TOSS_SECRET_KEY 환경변수 + Infisical(frontend)의 VITE_TOSS_CLIENT_KEY"

@@ -92,7 +92,7 @@ if wants chatbot; then
 fi
 
 if wants frontend; then
-  start frontend "$ROOT_DIR/gachisa-frontend" npm run dev
+  start frontend "$ROOT_DIR/gachisa-frontend" infisical run --env="$INFISICAL_ENV" --silent -- npm run dev
 fi
 
 echo ""
