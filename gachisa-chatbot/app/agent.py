@@ -6,6 +6,7 @@ from typing import Any
 from google.genai import errors, types
 
 from app.config import Settings
+from app.rate_limit import ChatUsageLimiter
 from app.security import CurrentUser
 from app.spring_client import SpringClient
 from app.rag import FaqIndex
@@ -24,6 +25,8 @@ SYSTEM_PROMPT = """당신은 공동구매 쇼핑몰 '가치사'의 고객 지원
   풀어 쓰고, 항목을 나열할 때는 줄바꿈과 가운뎃점(·)을 씁니다.
 - 서비스 이용 방법이나 정책(공동구매 규칙, 환불, 취소, 배송지 등록 시점 등)을 물으면
   항상 search_faq로 확인한 내용만 근거로 답합니다.
+- 참여·결제·취소 등에 필요한 절차나 필수 조건은 search_faq나 도구로 확인된 내용만
+  말합니다. 확인되지 않으면 모른다고 답하고 고객센터 문의를 안내합니다.
 
 이미지를 받았을 때:
 - 사진 속 물건이 무엇인지 파악해 search_group_buys의 keyword로 검색합니다.
@@ -96,6 +99,7 @@ async def run_agent(
     spring: SpringClient,
     user: CurrentUser,
     faq: FaqIndex,
+    usage_limiter: ChatUsageLimiter,
     message: str,
     history: list[dict[str, Any]],
     image: tuple[bytes, str] | None = None,
@@ -154,6 +158,16 @@ async def run_agent(
                 usage.prompt_token_count,
                 usage.candidates_token_count,
             )
+            daily_input, daily_output = await usage_limiter.record_tokens(
+                user.user_id, usage.prompt_token_count, usage.candidates_token_count
+            )
+            # 위젯이 매 턴 갱신할 수 있도록 이번 턴 값과 오늘 누적치를 함께 보낸다.
+            yield "usage", {
+                "turnInputTokens": usage.prompt_token_count,
+                "turnOutputTokens": usage.candidates_token_count,
+                "dailyInputTokens": daily_input,
+                "dailyOutputTokens": daily_output,
+            }
 
         parts = _merge_text(received)
         if not parts:

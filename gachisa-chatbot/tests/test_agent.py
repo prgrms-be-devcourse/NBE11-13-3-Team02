@@ -5,6 +5,7 @@ import pytest
 
 from app.agent import MAX_TURNS, run_agent
 from app.config import get_settings
+from app.rate_limit import ChatUsageLimiter
 from app.security import CurrentUser
 from app.spring_client import SpringClient
 from tests.fakes import FakeFaq, FakeGenai, call_part, call_turn, text_turn, turn
@@ -20,7 +21,12 @@ def spring_stub(handler) -> SpringClient:
     )
 
 
-async def collect(client, spring, message="안녕", history=None, faq=None):
+def _generous_limiter() -> ChatUsageLimiter:
+    """라우팅/도구 동작을 보는 테스트가 사용량 제한에 걸리지 않게 넉넉히 둔다."""
+    return ChatUsageLimiter(burst_capacity=1000, refill_per_minute=1000, daily_message_limit=1000)
+
+
+async def collect(client, spring, message="안녕", history=None, faq=None, usage_limiter=None):
     events = []
     async for event, data in run_agent(
         client=client,
@@ -28,6 +34,7 @@ async def collect(client, spring, message="안녕", history=None, faq=None):
         spring=spring,
         user=USER,
         faq=faq or FakeFaq(),
+        usage_limiter=usage_limiter or _generous_limiter(),
         message=message,
         history=history or [],
     ):
@@ -90,8 +97,9 @@ async def test_도구가_필요없으면_텍스트만_스트리밍한다(orders_
 
     events = await collect(client, orders_spring)
 
-    assert [e for e, _ in events] == ["token", "token"]
-    assert "".join(d["text"] for _, d in events) == "안녕하세요"
+    # 텍스트 토큰 뒤에 이번 턴의 사용량을 알리는 usage 이벤트가 하나 따라온다.
+    assert [e for e, _ in events] == ["token", "token", "usage"]
+    assert "".join(d["text"] for e, d in events if e == "token") == "안녕하세요"
 
 
 async def test_도구_결과가_다음_요청에_function_response로_실린다(orders_spring):
@@ -208,6 +216,21 @@ async def test_검색_도구는_할인가_필터를_spring_쿼리로_넘긴다()
     assert seen["maxPrice"] == "500000"
     assert seen["status"] == "RECRUITING"
     assert "minPrice" not in seen  # None인 필터는 쿼리에서 빠져야 한다
+
+
+async def test_usage_이벤트가_턴마다_누적치를_함께_보낸다(orders_spring):
+    """도구 호출로 두 턴이 돌면 usage 이벤트도 두 번 나가고, 오늘 누적치가 쌓여야 한다."""
+    client = FakeGenai([call_turn("get_my_orders"), text_turn("배송 중")])
+    limiter = ChatUsageLimiter(burst_capacity=1000, refill_per_minute=1000, daily_message_limit=1000)
+
+    events = await collect(client, orders_spring, "내 주문", usage_limiter=limiter)
+
+    usage_events = [d for e, d in events if e == "usage"]
+    assert len(usage_events) == 2
+    assert usage_events[0]["turnInputTokens"] == 100
+    assert usage_events[0]["dailyInputTokens"] == 100
+    assert usage_events[1]["dailyInputTokens"] == 200  # 두 턴 누적
+    assert usage_events[1]["dailyOutputTokens"] == 40
 
 
 async def test_요청에_모델과_도구_선언이_실린다(orders_spring):

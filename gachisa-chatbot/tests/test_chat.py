@@ -328,3 +328,49 @@ def test_한도를_넘어도_다른_사용자는_영향받지_않는다(client, 
 
     assert blocked.status_code == 429
     assert other_user_ok.status_code == 200
+
+
+def test_사용량_조회는_아무것도_소비하지_않는다(client, make_token):
+    limiter = ChatUsageLimiter(burst_capacity=3, refill_per_minute=1, daily_message_limit=5)
+    app.dependency_overrides[get_usage_limiter] = lambda: limiter
+    token = make_token()
+
+    try:
+        first = client.get("/chat/usage", headers={"Authorization": f"Bearer {token}"})
+        second = client.get("/chat/usage", headers={"Authorization": f"Bearer {token}"})
+    finally:
+        app.dependency_overrides.clear()
+
+    assert first.status_code == 200
+    body = first.json()
+    assert body == {
+        "dailyMessagesUsed": 0,
+        "dailyMessageLimit": 5,
+        "dailyInputTokens": 0,
+        "dailyOutputTokens": 0,
+        "burstTokensAvailable": 3.0,
+        "burstCapacity": 3.0,
+    }
+    assert second.json() == body, "조회만으로는 사용량이 줄어들면 안 된다"
+
+
+def test_대화_후_사용량_조회에_토큰과_횟수가_반영된다(client, make_token):
+    limiter = ChatUsageLimiter(burst_capacity=10, refill_per_minute=10, daily_message_limit=5)
+    fake = FakeGenai([text_turn("네")])
+    app.dependency_overrides[get_usage_limiter] = lambda: limiter
+    app.dependency_overrides[get_genai_client] = lambda: fake
+    token = make_token()
+
+    try:
+        client.post(
+            "/chat/stream", json={"message": "안녕"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        usage = client.get("/chat/usage", headers={"Authorization": f"Bearer {token}"})
+    finally:
+        app.dependency_overrides.clear()
+
+    body = usage.json()
+    assert body["dailyMessagesUsed"] == 1
+    assert body["dailyInputTokens"] == 100
+    assert body["dailyOutputTokens"] == 20

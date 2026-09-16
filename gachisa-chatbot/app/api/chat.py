@@ -129,6 +129,7 @@ async def stream_chat(
     client: GenaiDep,
     faq: FaqDep,
     settings: SettingsDep,
+    limiter: UsageLimiterDep,
     _rate_limit: RateLimitDep,
 ) -> StreamingResponse:
     conversation_id = payload.conversation_id or str(uuid.uuid4())
@@ -142,6 +143,7 @@ async def stream_chat(
                 spring=spring,
                 user=user,
                 faq=faq,
+                usage_limiter=limiter,
                 message=payload.message,
                 history=[m.model_dump() for m in payload.history],
                 image=(payload.image.decode(), payload.image.mime_type) if payload.image else None,
@@ -179,3 +181,28 @@ async def upstream_check(user: CurrentUserDep, spring: SpringClientDep) -> dict:
         "springStatus": response.status_code,
         "springBody": response.json() if response.is_success else None,
     }
+
+
+class UsageResponse(BaseModel):
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    daily_messages_used: int
+    daily_message_limit: int
+    daily_input_tokens: int
+    daily_output_tokens: int
+    burst_tokens_available: float
+    burst_capacity: float
+
+
+@router.get("/usage")
+async def get_usage(user: CurrentUserDep, limiter: UsageLimiterDep) -> UsageResponse:
+    """본인의 오늘 챗봇 사용량을 조회한다. 아무것도 소비하지 않는다."""
+    snapshot = await limiter.usage_of(user.user_id)
+    return UsageResponse(
+        daily_messages_used=snapshot.daily_messages_used,
+        daily_message_limit=snapshot.daily_message_limit,
+        daily_input_tokens=snapshot.daily_input_tokens,
+        daily_output_tokens=snapshot.daily_output_tokens,
+        burst_tokens_available=round(snapshot.burst_tokens_available, 2),
+        burst_capacity=snapshot.burst_capacity,
+    )

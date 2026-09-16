@@ -1,5 +1,6 @@
 import asyncio
 import time
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from typing import Callable
 
@@ -46,6 +47,12 @@ class TokenBucket:
                 return True
             return False
 
+    async def peek(self) -> float:
+        """소비하지 않고 현재 남은 토큰 수만 확인한다. 사용량 조회용."""
+        async with self._lock:
+            self._refill()
+            return self._tokens
+
     def _refill(self) -> None:
         now = self._clock()
         elapsed = now - self._updated_at
@@ -53,6 +60,18 @@ class TokenBucket:
             return
         self._tokens = min(self._capacity, self._tokens + elapsed * self._refill_per_second)
         self._updated_at = now
+
+
+@dataclass(frozen=True)
+class UsageSnapshot:
+    """사용자가 자기 사용량을 확인할 때 보여주는 값. 아무것도 소비하지 않는다."""
+
+    daily_messages_used: int
+    daily_message_limit: int
+    daily_input_tokens: int
+    daily_output_tokens: int
+    burst_tokens_available: float
+    burst_capacity: float
 
 
 class ChatUsageLimiter:
@@ -87,6 +106,9 @@ class ChatUsageLimiter:
         self._today = today
         self._buckets: dict[int, TokenBucket] = {}
         self._daily_counts: dict[int, tuple[date, int]] = {}
+        # 실제 Gemini 토큰 수(입력/출력)의 오늘 누적치. 대화 횟수 한도와는 별개로
+        # "얼마나 썼는지"를 사용자에게 그대로 보여주기 위한 것이라 제한을 걸지 않는다.
+        self._token_totals: dict[int, tuple[date, int, int]] = {}
         self._lock = asyncio.Lock()
 
     async def check(self, user_id: int) -> None:
@@ -119,3 +141,45 @@ class ChatUsageLimiter:
             if count >= self._daily_limit:
                 raise DailyBudgetExceeded()
             self._daily_counts[user_id] = (today, count + 1)
+
+    async def record_tokens(self, user_id: int, input_tokens: int, output_tokens: int) -> tuple[int, int]:
+        """이번 턴에 쓴 토큰을 오늘 누적치에 더하고, 누적된 오늘 총량을 돌려준다.
+
+        대화 하나가 도구 호출로 여러 턴을 돌 수 있어 턴이 끝날 때마다 호출된다.
+        """
+        async with self._lock:
+            today = self._today()
+            record = self._token_totals.get(user_id)
+            if record is None or record[0] != today:
+                total_input, total_output = 0, 0
+            else:
+                _, total_input, total_output = record
+            total_input += input_tokens
+            total_output += output_tokens
+            self._token_totals[user_id] = (today, total_input, total_output)
+            return total_input, total_output
+
+    async def usage_of(self, user_id: int) -> UsageSnapshot:
+        """사용자가 자기 사용량을 확인할 때 쓴다. 아무것도 소비하지 않는다."""
+        async with self._lock:
+            today = self._today()
+            recorded_date, message_count = self._daily_counts.get(user_id, (today, 0))
+            daily_messages_used = message_count if recorded_date == today else 0
+
+            token_record = self._token_totals.get(user_id)
+            if token_record is not None and token_record[0] == today:
+                _, input_tokens, output_tokens = token_record
+            else:
+                input_tokens, output_tokens = 0, 0
+
+        bucket = self._buckets.get(user_id)
+        burst_available = await bucket.peek() if bucket is not None else self._burst_capacity
+
+        return UsageSnapshot(
+            daily_messages_used=daily_messages_used,
+            daily_message_limit=self._daily_limit,
+            daily_input_tokens=input_tokens,
+            daily_output_tokens=output_tokens,
+            burst_tokens_available=burst_available,
+            burst_capacity=self._burst_capacity,
+        )

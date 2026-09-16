@@ -1,5 +1,16 @@
 import { getAccessToken } from './tokenStore'
 
+// 오늘 사용한 메시지 수/토큰 수를 조회한다. 아무것도 소비하지 않는다.
+export async function getChatUsage() {
+  const response = await fetch('/chat/usage', {
+    headers: { Authorization: `Bearer ${getAccessToken()}` },
+  })
+  if (!response.ok) {
+    throw new Error(`사용량 조회 오류: ${response.status}`)
+  }
+  return response.json()
+}
+
 // EventSource는 Authorization 헤더를 붙일 수 없고 POST도 못 한다.
 // accessToken이 메모리에만 있는 구조라 fetch + ReadableStream으로 SSE를 직접 읽는다.
 export async function streamChat({ message, history = [], conversationId = null, image = null, signal, onEvent }) {
