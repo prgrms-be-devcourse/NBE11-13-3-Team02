@@ -58,4 +58,13 @@ data class QueueProperties(
     val coreBaseUrl: String,
     val admissionTimeout: Duration = Duration.ofMinutes(10),
     val admissionBatchSize: Int = 10,
+    val rateLimit: RateLimitProperties = RateLimitProperties(),
+)
+
+data class RateLimitProperties(
+    // 프론트가 결제 대기 중 1초 간격으로 상태를 폴링한다([RateLimitFilter] 참고).
+    // capacity는 토큰 발급과 폴링이 겹쳐도 막히지 않을 여유이고, refillPerSecond는
+    // 그 폴링 속도를 웃돈다.
+    val capacity: Double = 5.0,
+    val refillPerSecond: Double = 1.2,
 )

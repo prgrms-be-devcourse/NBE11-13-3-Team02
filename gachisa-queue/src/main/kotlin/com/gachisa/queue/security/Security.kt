@@ -3,6 +3,9 @@ package com.gachisa.queue.security
 import com.gachisa.queue.core.QueueProperties
 import io.jsonwebtoken.Jwts
 import io.jsonwebtoken.security.Keys
+import java.util.concurrent.ConcurrentHashMap
+import kotlinx.coroutines.reactor.mono
+import org.springframework.http.HttpHeaders
 import org.springframework.http.HttpStatus
 import org.springframework.stereotype.Component
 import org.springframework.web.server.ResponseStatusException
@@ -33,6 +36,23 @@ class AccessTokenVerifier(properties: QueueProperties) {
             parser.parseSignedClaims(token).payload.subject.toLong()
         } catch (e: Exception) {
             throw unauthorized("유효하지 않은 토큰입니다.")
+        }
+    }
+
+    /**
+     * 레이트 리밋 키를 뽑을 때만 쓴다. 토큰이 없거나 잘못돼도 예외를 던지지 않고 null을
+     * 돌려준다 — 인증 실패 자체는 컨트롤러의 [userIdOf]가 판단할 몫이고, 여기서는
+     * "가능하면 사용자 단위로, 안 되면 IP 단위로" 키를 정하는 데만 쓰인다.
+     */
+    fun lenientUserIdOf(authorizationHeader: String?): Long? {
+        val token = authorizationHeader
+            ?.takeIf { it.startsWith(BEARER_PREFIX) }
+            ?.removePrefix(BEARER_PREFIX)
+            ?: return null
+        return try {
+            parser.parseSignedClaims(token).payload.subject.toLong()
+        } catch (e: Exception) {
+            null
         }
     }
 
@@ -76,5 +96,64 @@ class InternalTokenFilter(private val properties: QueueProperties) : WebFilter {
 
     private companion object {
         const val INTERNAL_TOKEN_HEADER = "X-Internal-Token"
+    }
+}
+
+/**
+ * 공개 API(api 로 시작하는 경로)를 토큰 버킷으로 보호한다. internal 경로는 이미 공유
+ * 시크릿으로 잠겨 있고 core만 호출하므로 대상이 아니다.
+ *
+ * 용량과 보충 속도는 실제 트래픽 패턴에서 골랐다. 프론트엔드가 결제 대기 중
+ * [GroupBuyCheckoutPage.waitForAdmission] 에서 1초 간격으로 상태를 폴링하므로,
+ * 정상적인 사용자는 초당 1회 정도를 오래 지속한다. 버킷 용량 5는 토큰 발급 +
+ * 몇 번의 폴링이 몰려도 첫 화면 진입에서 막히지 않을 여유이고, 보충 속도 1.2/초는
+ * 그 폴링을 계속 허용하면서도 짧은 시간에 수십 번씩 두드리는 남용은 막는다.
+ *
+ * 사용자별로 버킷을 하나씩 메모리에 들고 있다. 인스턴스가 하나뿐인 지금 구성에서는
+ * 문제가 없지만, 여러 인스턴스로 늘리면 사용자가 어느 인스턴스로 가느냐에 따라
+ * 한도가 갈라진다 — 그때는 Redis 같은 공유 저장소로 옮겨야 한다.
+ */
+@Component
+class RateLimitFilter(
+    private val properties: QueueProperties,
+    private val tokenVerifier: AccessTokenVerifier,
+) : WebFilter {
+
+    private val buckets = ConcurrentHashMap<String, TokenBucket>()
+
+    override fun filter(exchange: ServerWebExchange, chain: WebFilterChain): Mono<Void> {
+        val path = exchange.request.path.value()
+        if (!path.startsWith("/api/")) {
+            return chain.filter(exchange)
+        }
+
+        val bucket = buckets.computeIfAbsent(rateLimitKey(exchange)) {
+            TokenBucket(properties.rateLimit.capacity, properties.rateLimit.refillPerSecond)
+        }
+
+        return mono { bucket.tryConsume() }.flatMap { allowed ->
+            if (allowed) {
+                chain.filter(exchange)
+            } else {
+                exchange.response.statusCode = HttpStatus.TOO_MANY_REQUESTS
+                exchange.response.headers.add(HttpHeaders.RETRY_AFTER, RETRY_AFTER_SECONDS)
+                exchange.response.setComplete()
+            }
+        }
+    }
+
+    /** 로그인한 사용자면 사용자 단위로, 토큰이 없거나 잘못됐으면 IP 단위로 제한한다. */
+    private fun rateLimitKey(exchange: ServerWebExchange): String {
+        val userId = tokenVerifier.lenientUserIdOf(
+            exchange.request.headers.getFirst(HttpHeaders.AUTHORIZATION)
+        )
+        if (userId != null) return "user:$userId"
+
+        val ip = exchange.request.remoteAddress?.address?.hostAddress
+        return if (ip != null) "ip:$ip" else "unknown"
+    }
+
+    private companion object {
+        const val RETRY_AFTER_SECONDS = "1"
     }
 }
