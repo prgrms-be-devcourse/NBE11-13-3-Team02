@@ -135,7 +135,7 @@ NBE11-13-2-Team02/
 
 다음을 자동으로 처리합니다.
 
-- `application-local.yml`(백엔드), `.env`(프론트) 를 예제에서 복사
+- `application-local.yml`(백엔드) 를 예제에서 복사
 - **`.env.local` 생성** — 서비스가 공유해야 하는 `JWT_SECRET`, `QUEUE_INTERNAL_TOKEN`
 - 프론트 `npm install`, 챗봇 `uv sync`
 
@@ -148,8 +148,8 @@ NBE11-13-2-Team02/
 | 값 | 위치 | 필요한 경우 |
 |---|---|---|
 | `GEMINI_API_KEY` | `.env.local` | 챗봇. [발급](https://aistudio.google.com/apikey) (무료) |
-| `VITE_TOSS_CLIENT_KEY` | `gachisa-frontend/.env` | 결제 테스트 |
-| `VITE_KAKAO_CLIENT_ID` / `VITE_NAVER_CLIENT_ID` | `gachisa-frontend/.env` | 소셜 로그인 |
+| `VITE_TOSS_CLIENT_KEY` | Infisical (frontend, `dev`) | 결제 테스트 |
+| `VITE_KAKAO_CLIENT_ID` / `VITE_NAVER_CLIENT_ID` | Infisical (frontend, `dev`) | 소셜 로그인 |
 
 ### 2. 전체 실행
 
