@@ -21,6 +21,7 @@ command -v mysql >/dev/null 2>&1 || echo "  ! mysql CLI를 못 찾았어요. MyS
 command -v redis-cli >/dev/null 2>&1 || echo "  ! redis-cli를 못 찾았어요. Redis가 로컬에 설치/실행 중인지 확인해주세요."
 command -v uv >/dev/null 2>&1 || echo "  ! uv를 못 찾았어요. 챗봇 서버에 필요합니다: brew install uv"
 command -v openssl >/dev/null 2>&1 || missing+=("openssl")
+command -v infisical >/dev/null 2>&1 || missing+=("infisical (brew install infisical/get-cli/infisical)")
 
 if [ ${#missing[@]} -gt 0 ]; then
   echo "다음이 설치되어 있지 않습니다: ${missing[*]}"
@@ -35,7 +36,7 @@ if [ -f "$BACKEND_LOCAL_YML" ]; then
   echo "[backend] application-local.yml 이미 있음 (건너뜀)"
 else
   cp "$BACKEND_LOCAL_YML_EXAMPLE" "$BACKEND_LOCAL_YML"
-  echo "[backend] application-local.yml 생성함 (필요하면 jwt.secret 값을 바꿔주세요)"
+  echo "[backend] application-local.yml 생성함 (시크릿은 여기가 아니라 Infisical에 있습니다)"
 fi
 
 # --- 프론트엔드 설정 파일 + 의존성 설치 ---
@@ -52,29 +53,23 @@ echo "[frontend] npm install 실행 중..."
 (cd "$FRONTEND_DIR" && npm install)
 
 # --- 서비스 간 공유 시크릿 ---
-# core / queue / chatbot 이 같은 값을 써야 한다. application-local.yml 의 jwt.secret 을
-# 단일 출처로 삼아 나머지에 전파한다. 이 파일은 .gitignore 대상이다.
-# head 로 파이프를 끊으면 앞 단계가 SIGPIPE 로 죽어 set -e 에 걸린다. awk 한 번으로 끝낸다.
-JWT_SECRET="$(awk '/^jwt:/{inblock=1; next} /^[^[:space:]]/{inblock=0} inblock && /^[[:space:]]*secret:/{sub(/^[[:space:]]*secret:[[:space:]]*/, ""); gsub(/["\x27]/, ""); print; exit}' "$BACKEND_LOCAL_YML")"
+# core 의 시크릿은 Infisical 이 단일 출처다(gachisa-backend/.infisical.json).
+# queue 와 챗봇은 아직 로컬 파일에서 읽으므로, 같은 JWT_SECRET 을 여기서 받아 내려보낸다.
+# 값이 하나라도 어긋나면 core 가 발급한 토큰을 나머지가 거부한다.
+INFISICAL_ENV="${INFISICAL_ENV:-dev}"
+JWT_SECRET="$(cd "$BACKEND_DIR" && infisical secrets get JWT_SECRET \
+  --env="$INFISICAL_ENV" --plain --silent 2>/dev/null || true)"
 
 if [ -z "$JWT_SECRET" ]; then
-  echo "  ! application-local.yml 에서 jwt.secret 을 찾지 못했습니다. 직접 확인해주세요."
+  echo "  ! Infisical 에서 JWT_SECRET 을 읽지 못했습니다."
+  echo "    로그인:      cd $BACKEND_DIR && infisical login"
+  echo "    환경 확인:   cd $BACKEND_DIR && infisical secrets --env=$INFISICAL_ENV"
+  echo "    (환경 이름이 dev 가 아니면 INFISICAL_ENV=이름 ./setup.sh 로 실행하세요)"
   exit 1
 fi
 if [ ${#JWT_SECRET} -lt 64 ]; then
-  echo "  ! jwt.secret 이 ${#JWT_SECRET}자입니다. HS512는 64자 이상이어야 합니다."
+  echo "  ! Infisical 의 JWT_SECRET 이 ${#JWT_SECRET}자입니다. HS512는 64자 이상이어야 합니다."
   exit 1
-fi
-
-# 예제 파일의 값을 그대로 쓰면 리포지토리를 본 사람은 누구나 토큰을 위조할 수 있다.
-EXAMPLE_SECRET="$(awk '/^jwt:/{inblock=1; next} /^[^[:space:]]/{inblock=0} inblock && /^[[:space:]]*secret:/{sub(/^[[:space:]]*secret:[[:space:]]*/, ""); gsub(/["\x27]/, ""); print; exit}' "$BACKEND_LOCAL_YML_EXAMPLE")"
-if [ "$JWT_SECRET" = "$EXAMPLE_SECRET" ]; then
-  echo ""
-  echo "  ! jwt.secret 이 예제 파일의 값 그대로입니다."
-  echo "    로컬 개발만 하면 괜찮지만, 이대로 배포하면 누구나 액세스 토큰을 위조할 수 있습니다."
-  echo "    새 값 생성:  openssl rand -base64 64 | tr -d '\\n'"
-  echo "    적용:        $BACKEND_LOCAL_YML 의 jwt.secret 을 바꾸고 ./setup.sh 재실행"
-  echo ""
 fi
 
 if [ -f "$SHARED_ENV" ]; then
@@ -90,14 +85,36 @@ fi
 
 cat > "$SHARED_ENV" <<SHARED
 # 서비스 간 공유 설정. git에 올라가지 않습니다(.gitignore).
-# jwt.secret 은 gachisa-backend/src/main/resources/application-local.yml 이 원본이고
-# 이 파일은 setup.sh 가 거기서 복사합니다. 직접 고치지 말고 원본을 고친 뒤 setup.sh 를 다시 실행하세요.
+# JWT_SECRET 은 Infisical 이 원본이고 setup.sh 가 여기로 복사합니다.
+# 직접 고치지 말고 Infisical 에서 바꾼 뒤 ./setup.sh 를 다시 실행하세요.
+# (core 는 이 파일을 쓰지 않습니다 — infisical run 으로 직접 주입받습니다)
 JWT_SECRET=$JWT_SECRET
 QUEUE_INTERNAL_TOKEN=$QUEUE_INTERNAL_TOKEN
 
 # https://aistudio.google.com/apikey 에서 발급(무료). 챗봇에 필요합니다.
 GEMINI_API_KEY=$GEMINI_API_KEY
 SHARED
+
+# --- core 의 내부 토큰 ---
+# QUEUE_INTERNAL_TOKEN 은 core 와 queue 가 서로를 호출할 때 쓰는 공유 토큰이라
+# 양쪽 값이 같아야 한다. core 는 Infisical 로 뜨는데 이 값은 거기 없으므로
+# (Infisical 은 core 전용 시크릿만 관리) 여기서 application-local.yml 에 넣어 둔다.
+# 환경변수가 있으면 그쪽이 우선한다(run.sh 경로).
+python3 - "$BACKEND_LOCAL_YML" "$QUEUE_INTERNAL_TOKEN" <<'PYEOF'
+import re, sys
+path, token = sys.argv[1], sys.argv[2]
+body = open(path, encoding='utf-8').read()
+block = (
+    "\n# core \u2194 queue \uc11c\ube44\uc2a4 \uac04 \ud638\ucd9c\uc6a9 \uacf5\uc720 \ud1a0\ud070. setup.sh \uac00 \uc0dd\uc131\ud569\ub2c8\ub2e4.\n"
+    "queue:\n  internal-token: " + token + "\n"
+)
+if re.search(r'^queue:', body, flags=re.M):
+    body = re.sub(r'(^queue:\n(?:.*\n)*?\s*internal-token: ).*$', r'\g<1>' + token, body, flags=re.M)
+else:
+    body = body.rstrip("\n") + "\n" + block
+open(path, 'w', encoding='utf-8').write(body)
+PYEOF
+echo "[backend] application-local.yml 에 queue.internal-token 반영함"
 
 # --- 대기열 서버 ---
 # queue 는 셸 환경변수(run.sh)로도 뜨지만, IDE 실행 버튼처럼 환경변수가 없는 경로에서도
