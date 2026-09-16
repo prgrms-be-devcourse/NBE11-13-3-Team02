@@ -30,6 +30,7 @@ public enum ErrorCode {
     QUEUE_TOKEN_INVALID(HttpStatus.BAD_REQUEST, "유효하지 않은 대기열 토큰입니다."),
     QUEUE_ADMISSION_REQUIRED(HttpStatus.CONFLICT, "결제 차례가 아직 도착하지 않았습니다."),
     QUEUE_ADMISSION_EXPIRED(HttpStatus.CONFLICT, "결제 가능 시간이 만료되어 대기열 끝으로 이동했습니다."),
+    QUEUE_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "대기열 서비스에 연결할 수 없습니다. 잠시 후 다시 시도해 주세요."),
 
     // Payment
     PAYMENT_NOT_FOUND(HttpStatus.NOT_FOUND, "결제 내역을 찾을 수 없습니다."),

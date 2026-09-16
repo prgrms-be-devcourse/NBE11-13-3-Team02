@@ -16,6 +16,7 @@ import ParticipationDetailPage from '../pages/ParticipationDetailPage.jsx'
 import LegacyOrderRedirectPage from '../pages/LegacyOrderRedirectPage.jsx'
 import DeliveryAddressPage from '../pages/DeliveryAddressPage.jsx'
 import AdminDeliveryPage from '../pages/AdminDeliveryPage.jsx'
+import AdminChatUsagePage from '../pages/AdminChatUsagePage.jsx'
 import PaymentSuccessPage from '../pages/PaymentSuccessPage.jsx'
 import PaymentFailPage from '../pages/PaymentFailPage.jsx'
 import RefundStatusPage from '../pages/RefundStatusPage.jsx'
@@ -76,6 +77,7 @@ export default function Router() {
           <Route element={<RoleRoute roles={['ROLE_ADMIN']} />}>
             <Route path="/admin/categories" element={<CategoryManagePage />} />
             <Route path="/admin/deliveries" element={<AdminDeliveryPage />} />
+            <Route path="/admin/chat-usage" element={<AdminChatUsagePage />} />
           </Route>
         </Route>
 

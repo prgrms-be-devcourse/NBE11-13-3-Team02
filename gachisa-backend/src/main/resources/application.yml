@@ -65,3 +65,8 @@ logging:
   level:
     org.hibernate.SQL: debug
     org.hibernate.orm.jdbc.bind: trace
+
+queue:
+  base-url: ${QUEUE_BASE_URL:http://localhost:8081}
+  # gachisa-queue 의 queue.internal-token 과 동일해야 한다.
+  internal-token: ${QUEUE_INTERNAL_TOKEN:local-internal-token}

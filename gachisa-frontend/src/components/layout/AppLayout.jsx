@@ -17,6 +17,7 @@ import Alert from '@mui/material/Alert'
 import SearchIcon from '@mui/icons-material/Search'
 import CloseIcon from '@mui/icons-material/Close'
 import Logo from '../Logo.jsx'
+import ChatWidget from '../ChatWidget.jsx'
 import { useAuth } from '../../context/AuthContext.jsx'
 import { getCategories } from '../../api/categoryApi'
 import CategoryTreeSelect from '../CategoryTreeSelect.jsx'
@@ -146,6 +147,7 @@ export default function AppLayout() {
                     <Divider />
                     <MenuItem onClick={() => goTo('/admin/categories')}>카테고리 관리</MenuItem>
                     <MenuItem onClick={() => goTo('/admin/deliveries')}>배송 관리</MenuItem>
+                    <MenuItem onClick={() => goTo('/admin/chat-usage')}>챗봇 토큰 사용량</MenuItem>
                     <MenuItem onClick={() => goTo('/dev/concurrency')}>동시성 검증</MenuItem>
                   </>
                 )}
@@ -226,6 +228,8 @@ export default function AppLayout() {
       <Box sx={{ maxWidth: 1200, mx: 'auto', px: { xs: 2, sm: 3 }, py: 4 }}>
         <Outlet />
       </Box>
+
+      <ChatWidget />
     </Box>
   )
 }
