@@ -18,6 +18,14 @@ class Settings(BaseSettings):
     gemini_model: str = "gemini-3.5-flash"
     gemini_max_output_tokens: int = 4096
 
+    # Gemini 무료 티어는 모델당 분당 5회, 하루 20회를 팀 전체가 나눠 쓴다.
+    # 대화 하나가 API를 2~3회 쓰므로, 아래 기본값은 팀원 여럿이 같이 쓸 때
+    # 한 사람이 순간적으로 공유 한도를 다 써버리지 않도록 보수적으로 잡은 값이다.
+    # 필요하면 .env에서 조정한다.
+    chat_burst_capacity: float = 2.0
+    chat_refill_per_minute: float = 1.0
+    chat_daily_message_limit: int = 4
+
     cors_origins: list[str] = ["http://localhost:5173"]
 
 

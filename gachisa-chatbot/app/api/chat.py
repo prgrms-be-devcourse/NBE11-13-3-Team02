@@ -8,7 +8,7 @@ from collections.abc import AsyncIterator
 from typing import Annotated, Literal
 
 from google import genai
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pydantic.alias_generators import to_camel
@@ -16,6 +16,7 @@ from pydantic.alias_generators import to_camel
 from app.agent import run_agent
 from app.config import Settings, get_settings
 from app.rag import FaqIndex
+from app.rate_limit import ChatUsageLimiter, DailyBudgetExceeded, RateLimitExceeded
 from app.security import CurrentUserDep
 from app.spring_client import SpringClientDep
 
@@ -37,6 +38,37 @@ def get_faq_index(request: Request) -> FaqIndex:
 
 FaqDep = Annotated[FaqIndex, Depends(get_faq_index)]
 SettingsDep = Annotated[Settings, Depends(get_settings)]
+
+
+def get_usage_limiter(request: Request) -> ChatUsageLimiter:
+    return request.app.state.chat_usage_limiter
+
+
+UsageLimiterDep = Annotated[ChatUsageLimiter, Depends(get_usage_limiter)]
+
+
+async def enforce_rate_limit(user: CurrentUserDep, limiter: UsageLimiterDep) -> None:
+    """도구 호출을 시작하기 전에 사용량을 확인한다.
+
+    인증(401)과 같은 자리 — 실패하면 SSE 스트림을 열지도 않고 바로 HTTP 오류로
+    끝낸다. 스트림을 연 뒤에 막으면 이미 연결 자원을 쓴 셈이라 의미가 없다.
+    """
+    try:
+        await limiter.check(user.user_id)
+    except RateLimitExceeded as e:
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            "요청이 너무 잦습니다. 잠시 후 다시 시도해 주세요.",
+            headers={"Retry-After": str(max(1, round(e.retry_after_seconds)))},
+        ) from e
+    except DailyBudgetExceeded as e:
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            "오늘 사용할 수 있는 대화 횟수를 모두 사용했습니다. 내일 다시 이용해 주세요.",
+        ) from e
+
+
+RateLimitDep = Annotated[None, Depends(enforce_rate_limit)]
 
 
 class ChatMessage(BaseModel):
@@ -97,6 +129,7 @@ async def stream_chat(
     client: GenaiDep,
     faq: FaqDep,
     settings: SettingsDep,
+    _rate_limit: RateLimitDep,
 ) -> StreamingResponse:
     conversation_id = payload.conversation_id or str(uuid.uuid4())
 

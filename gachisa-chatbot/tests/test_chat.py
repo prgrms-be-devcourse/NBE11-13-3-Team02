@@ -5,7 +5,8 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from app.api.chat import get_genai_client
+from app.api.chat import get_genai_client, get_usage_limiter
+from app.rate_limit import ChatUsageLimiter
 from app.main import app
 from app.rag import FaqIndex
 from app.spring_client import SpringClient, get_spring_client
@@ -260,3 +261,70 @@ def test_이미지가_없으면_기존과_동일하게_동작한다(client, make
     parts = fake.calls[0]["contents"][-1].parts
     assert len(parts) == 1
     assert parts[0].text == "안녕"
+
+def test_요청이_잦으면_429와_Retry_After를_돌려준다(client, make_token):
+    limiter = ChatUsageLimiter(burst_capacity=1, refill_per_minute=1, daily_message_limit=10)
+    app.dependency_overrides[get_usage_limiter] = lambda: limiter
+
+    try:
+        token = make_token()
+        client.post(
+            "/chat/stream", json={"message": "안녕"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        response = client.post(
+            "/chat/stream", json={"message": "또 안녕"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 429
+    assert "Retry-After" in response.headers
+
+
+def test_일일_한도를_넘으면_429를_돌려준다(client, make_token):
+    limiter = ChatUsageLimiter(burst_capacity=10, refill_per_minute=10, daily_message_limit=1)
+    app.dependency_overrides[get_usage_limiter] = lambda: limiter
+
+    try:
+        token = make_token()
+        client.post(
+            "/chat/stream", json={"message": "안녕"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        response = client.post(
+            "/chat/stream", json={"message": "또 안녕"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 429
+    assert "모두 사용했습니다" in response.json()["detail"]
+
+
+def test_한도를_넘어도_다른_사용자는_영향받지_않는다(client, make_token):
+    limiter = ChatUsageLimiter(burst_capacity=1, refill_per_minute=0, daily_message_limit=10)
+    app.dependency_overrides[get_usage_limiter] = lambda: limiter
+
+    try:
+        first_user = make_token(user_id=1)
+        second_user = make_token(user_id=2)
+        client.post(
+            "/chat/stream", json={"message": "안녕"},
+            headers={"Authorization": f"Bearer {first_user}"},
+        )
+        blocked = client.post(
+            "/chat/stream", json={"message": "또 안녕"},
+            headers={"Authorization": f"Bearer {first_user}"},
+        )
+        other_user_ok = client.post(
+            "/chat/stream", json={"message": "안녕"},
+            headers={"Authorization": f"Bearer {second_user}"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert blocked.status_code == 429
+    assert other_user_ok.status_code == 200
