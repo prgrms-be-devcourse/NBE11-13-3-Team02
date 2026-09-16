@@ -147,6 +147,7 @@ export default function AppLayout() {
                     <Divider />
                     <MenuItem onClick={() => goTo('/admin/categories')}>카테고리 관리</MenuItem>
                     <MenuItem onClick={() => goTo('/admin/deliveries')}>배송 관리</MenuItem>
+                    <MenuItem onClick={() => goTo('/admin/chat-usage')}>챗봇 토큰 사용량</MenuItem>
                     <MenuItem onClick={() => goTo('/dev/concurrency')}>동시성 검증</MenuItem>
                   </>
                 )}

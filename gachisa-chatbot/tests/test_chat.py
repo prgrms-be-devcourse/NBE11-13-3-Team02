@@ -374,3 +374,51 @@ def test_대화_후_사용량_조회에_토큰과_횟수가_반영된다(client,
     assert body["dailyMessagesUsed"] == 1
     assert body["dailyInputTokens"] == 100
     assert body["dailyOutputTokens"] == 20
+
+
+def test_관리자가_아니면_전체_사용량을_볼_수_없다(client, make_token):
+    token = make_token(role="ROLE_BUYER")
+    response = client.get("/chat/admin/usage", headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code == 403
+
+
+def test_관리자는_사용자별_토큰_사용량을_모아_본다(client, make_token):
+    limiter = ChatUsageLimiter(burst_capacity=10, refill_per_minute=10, daily_message_limit=5)
+    fake = FakeGenai([text_turn("네"), text_turn("네"), text_turn("네")])
+    app.dependency_overrides[get_usage_limiter] = lambda: limiter
+    app.dependency_overrides[get_genai_client] = lambda: fake
+
+    try:
+        heavy_user = make_token(user_id=1, name="많이쓴사람")
+        light_user = make_token(user_id=2, name="적게쓴사람")
+        for _ in range(2):
+            client.post(
+                "/chat/stream", json={"message": "안녕"},
+                headers={"Authorization": f"Bearer {heavy_user}"},
+            )
+        client.post(
+            "/chat/stream", json={"message": "안녕"},
+            headers={"Authorization": f"Bearer {light_user}"},
+        )
+
+        response = client.get(
+            "/chat/admin/usage",
+            headers={"Authorization": f"Bearer {make_token(user_id=9, role='ROLE_ADMIN')}"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["dailyMessageLimit"] == 5
+
+    # 많이 쓴 사용자가 위로 온다. 관리자 조회 자체는 사용량으로 잡히지 않는다.
+    assert [row["userId"] for row in body["users"]] == [1, 2]
+    assert body["users"][0]["name"] == "많이쓴사람"
+    assert body["users"][0]["totalMessagesUsed"] == 2
+    assert body["users"][0]["totalInputTokens"] == 200
+    assert body["users"][0]["totalOutputTokens"] == 40
+    assert body["users"][1]["totalInputTokens"] == 100
+
+    assert body["totalInputTokens"] == 300, "전체 합계는 모든 사용자의 누적치를 더한 값이다"
+    assert body["totalOutputTokens"] == 60

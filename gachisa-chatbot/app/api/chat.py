@@ -17,7 +17,7 @@ from app.agent import run_agent
 from app.config import Settings, get_settings
 from app.rag import FaqIndex
 from app.rate_limit import ChatUsageLimiter, DailyBudgetExceeded, RateLimitExceeded
-from app.security import CurrentUserDep
+from app.security import CurrentUser, CurrentUserDep
 from app.spring_client import SpringClientDep
 
 logger = logging.getLogger(__name__)
@@ -54,7 +54,7 @@ async def enforce_rate_limit(user: CurrentUserDep, limiter: UsageLimiterDep) -> 
     끝낸다. 스트림을 연 뒤에 막으면 이미 연결 자원을 쓴 셈이라 의미가 없다.
     """
     try:
-        await limiter.check(user.user_id)
+        await limiter.check(user.user_id, user.name)
     except RateLimitExceeded as e:
         raise HTTPException(
             status.HTTP_429_TOO_MANY_REQUESTS,
@@ -69,6 +69,23 @@ async def enforce_rate_limit(user: CurrentUserDep, limiter: UsageLimiterDep) -> 
 
 
 RateLimitDep = Annotated[None, Depends(enforce_rate_limit)]
+
+ADMIN_ROLE = "ROLE_ADMIN"
+
+
+def require_admin(user: CurrentUserDep) -> CurrentUser:
+    """관리자 전용 엔드포인트의 문지기.
+
+    role 클레임은 core가 서명한 토큰에서 나오므로 시크릿 없이는 위조할 수 없다.
+    다만 권한을 회수해도 이미 발급된 토큰은 만료 전까지 유효하다 — core의 관리자
+    API와 같은 조건이라 여기만 더 엄격하게 만들 이유는 없다.
+    """
+    if user.role != ADMIN_ROLE:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "관리자만 조회할 수 있습니다.")
+    return user
+
+
+AdminUserDep = Annotated[CurrentUser, Depends(require_admin)]
 
 
 class ChatMessage(BaseModel):
@@ -205,4 +222,56 @@ async def get_usage(user: CurrentUserDep, limiter: UsageLimiterDep) -> UsageResp
         daily_output_tokens=snapshot.daily_output_tokens,
         burst_tokens_available=round(snapshot.burst_tokens_available, 2),
         burst_capacity=snapshot.burst_capacity,
+    )
+
+
+class AdminUsageRow(BaseModel):
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    user_id: int
+    name: str
+    daily_messages_used: int
+    daily_input_tokens: int
+    daily_output_tokens: int
+    total_messages_used: int
+    total_input_tokens: int
+    total_output_tokens: int
+
+
+class AdminUsageResponse(BaseModel):
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    daily_message_limit: int
+    total_input_tokens: int
+    total_output_tokens: int
+    users: list[AdminUsageRow]
+
+
+@router.get("/admin/usage")
+async def get_admin_usage(
+    _admin: AdminUserDep, limiter: UsageLimiterDep
+) -> AdminUsageResponse:
+    """사용자별 챗봇 토큰 사용량을 모아 본다(관리자 전용).
+
+    집계는 챗봇 프로세스 메모리에 있어 서버를 재시작하면 0부터 다시 쌓인다.
+    장기 보관이 필요해지면 저장소를 붙여야 한다.
+    """
+    rows = await limiter.all_usage()
+    return AdminUsageResponse(
+        daily_message_limit=limiter.daily_message_limit,
+        total_input_tokens=sum(row.total_input_tokens for row in rows),
+        total_output_tokens=sum(row.total_output_tokens for row in rows),
+        users=[
+            AdminUsageRow(
+                user_id=row.user_id,
+                name=row.name,
+                daily_messages_used=row.daily_messages_used,
+                daily_input_tokens=row.daily_input_tokens,
+                daily_output_tokens=row.daily_output_tokens,
+                total_messages_used=row.total_messages_used,
+                total_input_tokens=row.total_input_tokens,
+                total_output_tokens=row.total_output_tokens,
+            )
+            for row in rows
+        ],
     )

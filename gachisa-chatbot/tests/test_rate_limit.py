@@ -121,3 +121,46 @@ async def test_날짜가_바뀌면_일일_한도가_초기화된다():
 
     current_day["value"] = date(2026, 9, 17)
     await usage.check(user_id=1)  # 다음 날이라 다시 허용된다
+
+
+async def test_전체_사용량은_많이_쓴_순으로_나온다():
+    clock = FakeClock()
+    day = date(2026, 9, 16)
+    usage = ChatUsageLimiter(
+        burst_capacity=10, refill_per_minute=0, daily_message_limit=10,
+        clock=clock, today=lambda: day,
+    )
+
+    await usage.check(user_id=1, name="적게쓴사람")
+    await usage.record_tokens(1, input_tokens=10, output_tokens=5)
+    await usage.check(user_id=2, name="많이쓴사람")
+    await usage.record_tokens(2, input_tokens=100, output_tokens=50)
+
+    rows = await usage.all_usage()
+
+    assert [(row.user_id, row.name) for row in rows] == [(2, "많이쓴사람"), (1, "적게쓴사람")]
+    assert rows[0].total_input_tokens == 100
+    assert rows[0].daily_input_tokens == 100
+
+
+async def test_날짜가_바뀌어도_누적_사용량은_유지된다():
+    clock = FakeClock()
+    current_day = {"value": date(2026, 9, 16)}
+    usage = ChatUsageLimiter(
+        burst_capacity=10, refill_per_minute=0, daily_message_limit=10,
+        clock=clock, today=lambda: current_day["value"],
+    )
+
+    await usage.check(user_id=1, name="테스터")
+    await usage.record_tokens(1, input_tokens=100, output_tokens=50)
+
+    current_day["value"] = date(2026, 9, 17)
+    row = (await usage.all_usage())[0]
+
+    # 오늘치는 날짜가 바뀌며 0으로 돌아가지만, 누적치는 그대로 남아야 관리자가
+    # "지금까지 얼마나 썼나"를 볼 수 있다.
+    assert row.daily_input_tokens == 0
+    assert row.daily_messages_used == 0
+    assert row.total_input_tokens == 100
+    assert row.total_output_tokens == 50
+    assert row.total_messages_used == 1

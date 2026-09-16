@@ -74,6 +74,24 @@ class UsageSnapshot:
     burst_capacity: float
 
 
+@dataclass(frozen=True)
+class UserUsageSnapshot:
+    """관리자가 보는 사용자 한 명의 사용량.
+
+    오늘치와 누적치를 함께 담는다. 오늘치는 일일 한도와 비교하는 값이고,
+    누적치는 "이 사용자에게 지금까지 얼마나 썼나"를 보는 값이라 쓰임이 다르다.
+    """
+
+    user_id: int
+    name: str
+    daily_messages_used: int
+    daily_input_tokens: int
+    daily_output_tokens: int
+    total_messages_used: int
+    total_input_tokens: int
+    total_output_tokens: int
+
+
 class ChatUsageLimiter:
     """사용자별 AI 사용량을 두 겹으로 제한한다.
 
@@ -109,9 +127,18 @@ class ChatUsageLimiter:
         # 실제 Gemini 토큰 수(입력/출력)의 오늘 누적치. 대화 횟수 한도와는 별개로
         # "얼마나 썼는지"를 사용자에게 그대로 보여주기 위한 것이라 제한을 걸지 않는다.
         self._token_totals: dict[int, tuple[date, int, int]] = {}
+        # 날짜가 바뀌어도 초기화하지 않는 누적치 (대화 수, 입력 토큰, 출력 토큰).
+        # 관리자가 사용자별 총 사용량을 볼 때 쓴다.
+        self._lifetime: dict[int, tuple[int, int, int]] = {}
+        # 관리자 화면에 숫자만 나오면 누구인지 알 수 없어 토큰의 name 클레임을 같이 둔다.
+        self._names: dict[int, str] = {}
         self._lock = asyncio.Lock()
 
-    async def check(self, user_id: int) -> None:
+    @property
+    def daily_message_limit(self) -> int:
+        return self._daily_limit
+
+    async def check(self, user_id: int, name: str = "") -> None:
         """이번 대화를 진행해도 되는지 확인한다. 안 되면 예외를 던진다."""
         bucket = await self._bucket_for(user_id)
         if not await bucket.try_consume():
@@ -120,7 +147,7 @@ class ChatUsageLimiter:
             )
             raise RateLimitExceeded(retry_after)
 
-        await self._consume_daily_budget(user_id)
+        await self._record_message(user_id, name)
 
     async def _bucket_for(self, user_id: int) -> TokenBucket:
         async with self._lock:
@@ -132,7 +159,8 @@ class ChatUsageLimiter:
                 self._buckets[user_id] = bucket
             return bucket
 
-    async def _consume_daily_budget(self, user_id: int) -> None:
+    async def _record_message(self, user_id: int, name: str) -> None:
+        """일일 한도를 확인하고, 통과하면 이번 대화를 장부에 적는다."""
         async with self._lock:
             today = self._today()
             recorded_date, count = self._daily_counts.get(user_id, (today, 0))
@@ -141,6 +169,11 @@ class ChatUsageLimiter:
             if count >= self._daily_limit:
                 raise DailyBudgetExceeded()
             self._daily_counts[user_id] = (today, count + 1)
+
+            if name:
+                self._names[user_id] = name
+            messages, total_input, total_output = self._lifetime.get(user_id, (0, 0, 0))
+            self._lifetime[user_id] = (messages + 1, total_input, total_output)
 
     async def record_tokens(self, user_id: int, input_tokens: int, output_tokens: int) -> tuple[int, int]:
         """이번 턴에 쓴 토큰을 오늘 누적치에 더하고, 누적된 오늘 총량을 돌려준다.
@@ -157,20 +190,33 @@ class ChatUsageLimiter:
             total_input += input_tokens
             total_output += output_tokens
             self._token_totals[user_id] = (today, total_input, total_output)
+
+            messages, lifetime_input, lifetime_output = self._lifetime.get(user_id, (0, 0, 0))
+            self._lifetime[user_id] = (
+                messages,
+                lifetime_input + input_tokens,
+                lifetime_output + output_tokens,
+            )
             return total_input, total_output
+
+    def _today_counters(self, user_id: int, today: date) -> tuple[int, int, int]:
+        """오늘치 (대화 수, 입력 토큰, 출력 토큰). 호출자가 _lock 을 잡고 있어야 한다."""
+        recorded_date, message_count = self._daily_counts.get(user_id, (today, 0))
+        daily_messages_used = message_count if recorded_date == today else 0
+
+        token_record = self._token_totals.get(user_id)
+        if token_record is not None and token_record[0] == today:
+            _, input_tokens, output_tokens = token_record
+        else:
+            input_tokens, output_tokens = 0, 0
+        return daily_messages_used, input_tokens, output_tokens
 
     async def usage_of(self, user_id: int) -> UsageSnapshot:
         """사용자가 자기 사용량을 확인할 때 쓴다. 아무것도 소비하지 않는다."""
         async with self._lock:
-            today = self._today()
-            recorded_date, message_count = self._daily_counts.get(user_id, (today, 0))
-            daily_messages_used = message_count if recorded_date == today else 0
-
-            token_record = self._token_totals.get(user_id)
-            if token_record is not None and token_record[0] == today:
-                _, input_tokens, output_tokens = token_record
-            else:
-                input_tokens, output_tokens = 0, 0
+            daily_messages_used, input_tokens, output_tokens = self._today_counters(
+                user_id, self._today()
+            )
 
         bucket = self._buckets.get(user_id)
         burst_available = await bucket.peek() if bucket is not None else self._burst_capacity
@@ -182,4 +228,34 @@ class ChatUsageLimiter:
             daily_output_tokens=output_tokens,
             burst_tokens_available=burst_available,
             burst_capacity=self._burst_capacity,
+        )
+
+    async def all_usage(self) -> list[UserUsageSnapshot]:
+        """대화한 적 있는 모든 사용자의 사용량. 많이 쓴 순으로 정렬한다.
+
+        관리자 조회용이라 아무것도 소비하지 않는다. 집계가 프로세스 메모리에 있어
+        챗봇 서버를 재시작하면 누적치도 0부터 다시 쌓인다.
+        """
+        async with self._lock:
+            today = self._today()
+            snapshots = []
+            for user_id, (total_messages, total_input, total_output) in self._lifetime.items():
+                daily_messages, daily_input, daily_output = self._today_counters(user_id, today)
+                snapshots.append(
+                    UserUsageSnapshot(
+                        user_id=user_id,
+                        name=self._names.get(user_id, ""),
+                        daily_messages_used=daily_messages,
+                        daily_input_tokens=daily_input,
+                        daily_output_tokens=daily_output,
+                        total_messages_used=total_messages,
+                        total_input_tokens=total_input,
+                        total_output_tokens=total_output,
+                    )
+                )
+
+        return sorted(
+            snapshots,
+            key=lambda s: (s.total_input_tokens + s.total_output_tokens, s.user_id),
+            reverse=True,
         )
