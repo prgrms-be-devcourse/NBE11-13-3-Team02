@@ -87,7 +87,18 @@ core(gachisa-backend)에서 분리한 결제 대기열 서비스. Kotlin + 코�
 
 ## 실행
 
-`JWT_SECRET`은 core의 `jwt.secret`과 완전히 동일해야 한다.
+JWT 시크릿은 core의 `jwt.secret`과 완전히 동일해야 한다. 한 글자라도 다르면
+core가 발급한 토큰을 여기서 거부한다.
+
+루트에서 `./setup.sh`를 한 번 실행하면 `src/main/resources/application-local.yml`이
+core와 같은 값으로 생성된다(`.gitignore` 대상). 그 뒤로는 환경변수 없이 뜬다 —
+IDE 실행 버튼으로도, 아래 명령으로도 동작한다.
+
+```bash
+./gradlew bootRun
+```
+
+환경변수를 주면 그쪽이 우선한다(`run.sh`가 이 경로를 쓴다).
 
 ```bash
 JWT_SECRET=<core와 동일> QUEUE_INTERNAL_TOKEN=<공유 시크릿> ./gradlew bootRun

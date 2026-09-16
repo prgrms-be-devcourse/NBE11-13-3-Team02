@@ -1,0 +1,9 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="core (8080)" type="SpringBootApplicationConfigurationType" factoryName="Spring Boot">
+    <module name="gachisa-backend.main" />
+    <option name="SPRING_BOOT_MAIN_CLASS" value="com.gachisa.GachisaApplication" />
+    <method v="2">
+      <option name="Make" enabled="true" />
+    </method>
+  </configuration>
+</component>

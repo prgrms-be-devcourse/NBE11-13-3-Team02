@@ -4,6 +4,11 @@ server:
 spring:
   application:
     name: gachisa-queue
+  profiles:
+    # core(gachisa-backend)와 같은 규칙. 공유 시크릿은 Git에 올리지 않는
+    # application-local.yml 에 두고 이 프로파일로 읽는다. 덕분에 셸 환경변수를
+    # 내보내지 않는 실행 경로(IDE 실행 버튼)에서도 뜬다. 파일이 없으면 무시된다.
+    active: local
   data:
     redis:
       host: ${REDIS_HOST:localhost}

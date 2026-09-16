@@ -1,0 +1,9 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="queue (8081)" type="SpringBootApplicationConfigurationType" factoryName="Spring Boot">
+    <module name="gachisa-queue.main" />
+    <option name="SPRING_BOOT_MAIN_CLASS" value="com.gachisa.queue.QueueApplication" />
+    <method v="2">
+      <option name="Make" enabled="true" />
+    </method>
+  </configuration>
+</component>

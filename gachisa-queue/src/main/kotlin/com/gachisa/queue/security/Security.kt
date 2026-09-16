@@ -23,7 +23,7 @@ import reactor.core.publisher.Mono
 class AccessTokenVerifier(properties: QueueProperties) {
 
     private val parser = Jwts.parser()
-        .verifyWith(Keys.hmacShaKeyFor(properties.jwtSecret.toByteArray()))
+        .verifyWith(Keys.hmacShaKeyFor(secretBytesOf(properties.jwtSecret)))
         .build()
 
     fun userIdOf(authorizationHeader: String?): Long {
@@ -63,6 +63,24 @@ class AccessTokenVerifier(properties: QueueProperties) {
         const val BEARER_PREFIX = "Bearer "
     }
 }
+
+/**
+ * 시크릿이 설정되지 않았을 때 원인을 알 수 있는 메시지로 바꿔 준다.
+ *
+ * 설정을 빠뜨리면 jjwt가 "key byte array is N bits"라는 암호학 용어로만 실패해서,
+ * 정작 고쳐야 할 곳(공유 시크릿 설정)이 드러나지 않는다.
+ */
+private fun secretBytesOf(secret: String): ByteArray {
+    val bytes = secret.toByteArray()
+    require(bytes.size >= MIN_SECRET_BYTES) {
+        "queue.jwt-secret 이 ${bytes.size}바이트입니다. core(gachisa-backend)의 jwt.secret 과 " +
+            "같은 값을 application-local.yml 또는 JWT_SECRET 환경변수로 넣어주세요 " +
+            "(최소 ${MIN_SECRET_BYTES}바이트). ./setup.sh 를 실행하면 자동으로 채워집니다."
+    }
+    return bytes
+}
+
+private const val MIN_SECRET_BYTES = 32
 
 /**
  * internal 경로는 core만 부를 수 있어야 한다. 브라우저에 열리면 남의 대기열을 조작할 수 있다.

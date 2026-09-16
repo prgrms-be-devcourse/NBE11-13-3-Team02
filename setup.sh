@@ -99,6 +99,22 @@ QUEUE_INTERNAL_TOKEN=$QUEUE_INTERNAL_TOKEN
 GEMINI_API_KEY=$GEMINI_API_KEY
 SHARED
 
+# --- 대기열 서버 ---
+# queue 는 셸 환경변수(run.sh)로도 뜨지만, IDE 실행 버튼처럼 환경변수가 없는 경로에서도
+# 떠야 한다. core 와 같은 규칙으로 application-local.yml 에 공유 시크릿을 넣어 둔다.
+# 환경변수가 있으면 그쪽이 우선하도록 ${VAR:기본값} 형태로 쓴다.
+QUEUE_LOCAL_YML="$QUEUE_DIR/src/main/resources/application-local.yml"
+cat > "$QUEUE_LOCAL_YML" <<QUEUE_YML
+# setup.sh 가 생성합니다. git에 올라가지 않습니다(.gitignore).
+# jwt-secret 은 gachisa-backend/src/main/resources/application-local.yml 이 원본입니다.
+# 직접 고치지 말고 원본을 고친 뒤 setup.sh 를 다시 실행하세요.
+
+queue:
+  jwt-secret: \${JWT_SECRET:$JWT_SECRET}
+  internal-token: \${QUEUE_INTERNAL_TOKEN:$QUEUE_INTERNAL_TOKEN}
+QUEUE_YML
+echo "[queue] application-local.yml 생성함"
+
 # --- 챗봇 서버 ---
 # 챗봇은 자기 디렉터리의 .env 를 읽는다. 위 공유 설정에서 복사해 둔다.
 if command -v uv >/dev/null 2>&1; then

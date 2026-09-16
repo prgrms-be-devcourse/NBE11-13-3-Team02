@@ -166,24 +166,57 @@ core(8080) · queue(8081) · chatbot(8000) · frontend(5173)를 함께 띄우고
 ./run.sh core frontend
 ```
 
+### IntelliJ에서 실행 (팀 공용 실행 구성)
+
+`.run/`에 실행 구성을 커밋해 두어 팀원 모두가 같은 실행 버튼을 씁니다. 클론 후
+**한 번만** 아래를 해두면 이후로는 버튼만 누르면 됩니다.
+
+1. `./setup.sh` 실행 (공유 시크릿 생성 — 이걸 건너뛰면 queue가 토큰 검증에 실패합니다)
+2. Gradle 툴 윈도우(코끼리 아이콘) → `+` → `gachisa-backend/build.gradle` 링크
+3. 같은 방식으로 `gachisa-queue/build.gradle.kts` 링크
+
+동기화가 끝나면 상단 실행 구성 목록에 세 가지가 나타납니다.
+
+| 구성 | 실행 대상 |
+| --- | --- |
+| `core (8080)` | core 단독 |
+| `queue (8081)` | 대기열 서비스 단독 |
+| `core + queue` | 둘을 한 번에 |
+
+챗봇(Python)과 프론트(Node)는 IDE 실행 구성 없이 터미널로 띄웁니다.
+
+```bash
+./run.sh chatbot frontend
+```
+
+> **주의:** 같은 서비스를 IntelliJ와 터미널에서 동시에 띄우지 마세요. core는
+> `ddl-auto: create-drop`이라, 포트 충돌로 실패한 쪽이 종료되면서 **먼저 떠 있던
+> 인스턴스의 테이블까지 지웁니다.** 실행 전 `lsof -ti tcp:8080`으로 확인하세요.
+
 ### 개별 실행
 
-`run.sh`를 쓰지 않을 때는 공유 시크릿을 직접 넘겨야 합니다. **넘기지 않으면 core와
-queue의 토큰이 달라 결제 대기열이 403으로 막힙니다.**
+`./setup.sh`를 한 번 실행했다면 core와 queue는 각자의 `application-local.yml`에서
+공유 시크릿을 읽으므로 환경변수 없이 그대로 뜹니다.
 
 ```bash
 # core
 cd gachisa-backend && ./gradlew bootRun
 
-# queue — core와 같은 값이어야 함
-cd gachisa-queue
-JWT_SECRET=... QUEUE_INTERNAL_TOKEN=... ./gradlew bootRun
+# queue
+cd gachisa-queue && ./gradlew bootRun
 
 # chatbot
 cd gachisa-chatbot && uv run uvicorn app.main:app --port 8000
 
 # frontend
 cd gachisa-frontend && npm run dev
+```
+
+환경변수를 주면 그쪽이 우선합니다(`run.sh`가 쓰는 경로). 단, core와 queue의 값이
+다르면 결제 대기열이 403으로 막힙니다.
+
+```bash
+JWT_SECRET=... QUEUE_INTERNAL_TOKEN=... ./gradlew bootRun
 ```
 
 결제·소셜 로그인까지 테스트하려면 core 실행 전에 환경변수를 넘겨주세요:
