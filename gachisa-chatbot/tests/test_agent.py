@@ -6,9 +6,18 @@ import pytest
 from app.agent import MAX_TURNS, run_agent
 from app.config import get_settings
 from app.rate_limit import ChatUsageLimiter
+from app.router import Route, RouteDecision
 from app.security import CurrentUser
 from app.spring_client import SpringClient
-from tests.fakes import FakeFaq, FakeGenai, call_part, call_turn, text_turn, turn
+from tests.fakes import (
+    FakeFaq,
+    FakeGenai,
+    FakeRouter,
+    call_part,
+    call_turn,
+    text_turn,
+    turn,
+)
 
 USER = CurrentUser(user_id=7, name="안세호", role="ROLE_BUYER", access_token="tok-abc")
 
@@ -26,7 +35,9 @@ def _generous_limiter() -> ChatUsageLimiter:
     return ChatUsageLimiter(burst_capacity=1000, refill_per_minute=1000, daily_message_limit=1000)
 
 
-async def collect(client, spring, message="안녕", history=None, faq=None, usage_limiter=None):
+async def collect(
+    client, spring, message="안녕", history=None, faq=None, usage_limiter=None, router=None
+):
     events = []
     async for event, data in run_agent(
         client=client,
@@ -37,9 +48,17 @@ async def collect(client, spring, message="안녕", history=None, faq=None, usag
         usage_limiter=usage_limiter or _generous_limiter(),
         message=message,
         history=history or [],
+        router=router,
     ):
         events.append((event, data))
     return events
+
+
+def declared_tools(call) -> list[str]:
+    """한 API 호출의 config에 실제로 실린 도구 이름들."""
+    if not call["config"].tools:
+        return []
+    return [d.name for tool in call["config"].tools for d in tool.function_declarations]
 
 
 def function_responses(call):
@@ -97,8 +116,9 @@ async def test_도구가_필요없으면_텍스트만_스트리밍한다(orders_
 
     events = await collect(client, orders_spring)
 
-    # 텍스트 토큰 뒤에 이번 턴의 사용량을 알리는 usage 이벤트가 하나 따라온다.
-    assert [e for e, _ in events] == ["token", "token", "usage"]
+    # 어느 경로로 갔는지 알리는 route 로 열고, 텍스트 토큰과 이번 턴의 사용량이
+    # 이어지며, 생성 모델을 몇 번 불렀는지 알리는 metrics 로 닫는다.
+    assert [e for e, _ in events] == ["route", "token", "token", "usage", "metrics"]
     assert "".join(d["text"] for e, d in events if e == "token") == "안녕하세요"
 
 
@@ -163,7 +183,9 @@ async def test_빈_응답이면_error_이벤트로_끝난다(orders_spring):
 
     events = await collect(client, orders_spring)
 
-    assert events[-1][0] == "error"
+    # metrics 는 실패했을 때도 마지막에 붙는다. 호출은 이미 소비됐기 때문이다.
+    assert events[-2][0] == "error"
+    assert events[-1][0] == "metrics"
 
 
 async def test_도구_루프가_MAX_TURNS를_넘지_않는다(orders_spring):
@@ -172,7 +194,8 @@ async def test_도구_루프가_MAX_TURNS를_넘지_않는다(orders_spring):
     events = await collect(client, orders_spring, "무한 루프 유도")
 
     assert len(client.calls) == MAX_TURNS
-    assert events[-1][0] == "error"
+    assert events[-2][0] == "error"
+    assert events[-1][1]["generationCalls"] == MAX_TURNS
 
 
 async def test_대화_기록은_model_역할로_변환된다(orders_spring):
@@ -243,3 +266,92 @@ async def test_요청에_모델과_도구_선언이_실린다(orders_spring):
     declared = {f.name for t in call["config"].tools for f in t.function_declarations}
     assert declared == {"search_faq", "search_group_buys", "get_my_orders", "get_order_delivery"}
     assert "가치사" in call["config"].system_instruction
+
+
+# --- 라우팅 ---------------------------------------------------------------
+#
+# 라우팅의 목적은 생성 모델 호출을 줄이는 것이다. 무료 티어 한도를 쓰는 것이
+# 이 호출이므로, 아래 테스트들은 "몇 번 불렀나"를 직접 확인한다.
+
+
+def faq_router(score: float = 0.82) -> FakeRouter:
+    return FakeRouter(RouteDecision(Route.FAQ, "embedding", score))
+
+
+async def test_FAQ_경로는_생성_모델을_한_번만_부른다(orders_spring):
+    client = FakeGenai([text_turn("환불은 모집 마감 전까지 가능합니다.")])
+
+    events = await collect(
+        client, orders_spring, "환불 규정이 어떻게 돼?", router=faq_router()
+    )
+
+    # 기존 경로라면 "도구 고르기" + "답변 만들기"로 2회가 필요하다.
+    assert len(client.calls) == 1
+    assert events[-1] == ("metrics", {"route": "faq", "generationCalls": 1})
+
+
+async def test_FAQ_경로는_도구를_아예_싣지_않는다(orders_spring):
+    client = FakeGenai([text_turn("네")])
+
+    await collect(client, orders_spring, "환불 규정", router=faq_router())
+
+    assert declared_tools(client.calls[0]) == []
+
+
+async def test_FAQ_경로는_검색_결과를_시스템_프롬프트에_넣는다(orders_spring):
+    faq = FakeFaq([{"title": "환불 안내 > 언제 되나요", "content": "모집 마감 전까지 가능합니다.", "relevance": 0.9}])
+    client = FakeGenai([text_turn("네")])
+
+    await collect(client, orders_spring, "환불 규정", faq=faq, router=faq_router())
+
+    instruction = client.calls[0]["config"].system_instruction
+    assert "모집 마감 전까지 가능합니다." in instruction
+    assert "환불 안내 > 언제 되나요" in instruction
+
+
+async def test_근거가_약하면_FAQ_경로를_포기하고_도구_경로로_돌아간다(orders_spring):
+    # relevance가 임계값 아래다. 이 발췌로 답하면 지어내는 셈이 된다.
+    faq = FakeFaq([{"title": "배송 안내", "content": "관련 없는 내용", "relevance": 0.12}])
+    client = FakeGenai([call_turn("search_faq", {"query": "환불"}), text_turn("확인해 보니...")])
+
+    events = await collect(
+        client, orders_spring, "환불 규정", faq=faq, router=faq_router()
+    )
+
+    route_event = next(data for name, data in events if name == "route")
+    assert route_event["route"] == "general"
+    assert route_event["reason"] == "faq-miss"
+    # 도구를 쓸 수 있는 경로로 돌아왔으므로 도구가 실려 있어야 한다.
+    assert declared_tools(client.calls[0])
+
+
+async def test_ORDER_경로는_주문_도구만_연다(orders_spring):
+    client = FakeGenai([call_turn("get_my_orders"), text_turn("배송 중입니다")])
+    router = FakeRouter(RouteDecision(Route.ORDER, "rule:personal"))
+
+    await collect(client, orders_spring, "내 주문 어디까지 왔어", router=router)
+
+    tools = declared_tools(client.calls[0])
+    assert set(tools) == {"get_my_orders", "get_order_delivery", "search_faq"}
+    assert "search_group_buys" not in tools
+
+
+async def test_라우터가_없으면_기존과_똑같이_전체_도구를_연다(orders_spring):
+    client = FakeGenai([text_turn("네")])
+
+    events = await collect(client, orders_spring, "아무 말")
+
+    assert len(declared_tools(client.calls[0])) == 4
+    route_event = next(data for name, data in events if name == "route")
+    assert route_event["route"] == "general"
+
+
+async def test_FAQ_경로가_라우터_벡터를_재사용해_임베딩을_아낀다(orders_spring):
+    faq = FakeFaq()
+    client = FakeGenai([text_turn("네")])
+    router = FakeRouter(RouteDecision(Route.FAQ, "embedding", 0.8, vector=[0.1] * 8))
+
+    await collect(client, orders_spring, "환불 규정", faq=faq, router=router)
+
+    # 문자열이 아니라 벡터로 검색했다면 다시 임베딩하지 않은 것이다.
+    assert faq.queries == ["<vector:8>"]

@@ -52,6 +52,16 @@ def _normalize(vector: list[float]) -> list[float]:
     return [v / norm for v in vector] if norm else vector
 
 
+async def embed_queries(client: Any, texts: list[str]) -> list[list[float]]:
+    """질문 쪽 임베딩. 라우터와 FAQ 검색이 같은 표현 공간을 쓰도록 한곳에 둔다."""
+    return await _embed(client, texts, "RETRIEVAL_QUERY")
+
+
+def cosine(a: list[float], b: list[float]) -> float:
+    """둘 다 정규화된 벡터라 내적이 곧 코사인 유사도다."""
+    return sum(x * y for x, y in zip(a, b, strict=True))
+
+
 class FaqIndex:
     """FAQ 벡터 인덱스. 문서가 수십 개 수준이라 메모리에 두고 전수 비교한다.
 
@@ -76,10 +86,18 @@ class FaqIndex:
         return len(self._chunks)
 
     async def search(self, query: str, top_k: int = 3) -> list[dict[str, Any]]:
-        [query_vector] = await _embed(client=self._client, texts=[query], task_type="RETRIEVAL_QUERY")
+        [query_vector] = await embed_queries(self._client, [query])
+        return self.search_with_vector(query_vector, top_k)
+
+    def search_with_vector(self, query_vector: list[float], top_k: int = 3) -> list[dict[str, Any]]:
+        """이미 뽑아둔 질문 벡터로 검색한다.
+
+        라우터가 분류하려고 같은 문장을 이미 임베딩했으므로, 그 벡터를 넘겨받아
+        임베딩 호출을 한 번 아낀다. 둘 다 RETRIEVAL_QUERY라 같은 표현 공간이다.
+        """
         scored = sorted(
             (
-                (sum(q * v for q, v in zip(query_vector, vector, strict=True)), chunk)
+                (cosine(query_vector, vector), chunk)
                 for vector, chunk in zip(self._vectors, self._chunks, strict=True)
             ),
             key=lambda pair: pair[0],

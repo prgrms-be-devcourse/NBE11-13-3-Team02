@@ -9,17 +9,23 @@ from app.api.chat import get_genai_client, get_usage_limiter
 from app.rate_limit import ChatUsageLimiter
 from app.main import app
 from app.rag import FaqIndex
+from app.router import QuestionRouter
 from app.spring_client import SpringClient, get_spring_client
-from tests.fakes import FakeFaq, FakeGenai, call_turn, text_turn
+from tests.fakes import FakeFaq, FakeGenai, FakeRouter, call_turn, text_turn
 
 
 @pytest.fixture
 def client(monkeypatch):
-    # 앱 기동(lifespan)이 FAQ 색인을 만들며 임베딩 API를 호출하지 않도록 막는다.
+    # 앱 기동(lifespan)이 FAQ 색인과 라우터 예시 문장을 임베딩한다. 테스트가
+    # 임베딩 API를 호출하지 않도록 둘 다 막는다.
     async def fake_build(cls, client, directory=None):
         return FakeFaq()
 
+    async def fake_router_build(cls, client, **kwargs):
+        return FakeRouter()
+
     monkeypatch.setattr(FaqIndex, "build", classmethod(fake_build))
+    monkeypatch.setattr(QuestionRouter, "build", classmethod(fake_router_build))
     with TestClient(app) as test_client:
         yield test_client
 

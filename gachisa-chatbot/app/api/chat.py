@@ -17,6 +17,7 @@ from app.agent import run_agent
 from app.config import Settings, get_settings
 from app.rag import FaqIndex
 from app.rate_limit import ChatUsageLimiter, DailyBudgetExceeded, RateLimitExceeded
+from app.router import QuestionRouter
 from app.security import CurrentUser, CurrentUserDep
 from app.spring_client import SpringClientDep
 
@@ -37,6 +38,13 @@ def get_faq_index(request: Request) -> FaqIndex:
 
 
 FaqDep = Annotated[FaqIndex, Depends(get_faq_index)]
+
+
+def get_question_router(request: Request) -> QuestionRouter:
+    return request.app.state.question_router
+
+
+QuestionRouterDep = Annotated[QuestionRouter, Depends(get_question_router)]
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 
 
@@ -145,6 +153,7 @@ async def stream_chat(
     spring: SpringClientDep,
     client: GenaiDep,
     faq: FaqDep,
+    question_router: QuestionRouterDep,
     settings: SettingsDep,
     limiter: UsageLimiterDep,
     _rate_limit: RateLimitDep,
@@ -164,6 +173,7 @@ async def stream_chat(
                 message=payload.message,
                 history=[m.model_dump() for m in payload.history],
                 image=(payload.image.decode(), payload.image.mime_type) if payload.image else None,
+                router=question_router,
             )
             async for event, data in agent_events:
                 if await request.is_disconnected():
