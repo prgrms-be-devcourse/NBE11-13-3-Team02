@@ -37,6 +37,8 @@ dependencies {
     // 동시성 데모가 요청 수만큼 동시 호출을 만들 때만 쓴다. 서비스 로직은 JPA/JDBC라
     // suspend로 바꿔도 스레드를 반납할 수 없어 적용 대상이 아니다.
     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-core'
+    implementation 'org.springframework.boot:spring-boot-starter-actuator'
+    runtimeOnly 'io.micrometer:micrometer-registry-prometheus'
 
     // JWT
     implementation 'io.jsonwebtoken:jjwt-api:0.12.6'
