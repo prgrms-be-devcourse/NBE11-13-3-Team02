@@ -30,6 +30,9 @@ public interface GroupBuyRepository extends JpaRepository<GroupBuy, Long>, JpaSp
     /** 마감 배치 대상 조회: 모집중인데 마감시각이 지난 공동구매 */
     List<GroupBuy> findByStatusAndDeadlineBefore(GroupBuyStatus status, LocalDateTime now);
 
+    /** 기동 시 Redis 재고를 DB 기준으로 맞출 때 쓴다. 예약 대상은 모집중인 것뿐이다. */
+    List<GroupBuy> findAllByStatus(GroupBuyStatus status);
+
     // ---- 검색/필터/정렬 (GB-02) ----
     // 가격 필터/정렬은 정가(basePrice)가 아니라 "할인가(basePrice - basePrice*discountRate)" 기준으로 계산한다.
     // 정렬 방향(마감임박/가격오름/가격내림)마다 ORDER BY가 달라야 해서 쿼리를 3개로 분리했다.
