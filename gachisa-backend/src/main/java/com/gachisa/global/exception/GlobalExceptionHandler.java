@@ -2,6 +2,8 @@ package com.gachisa.global.exception;
 
 import com.gachisa.global.response.ErrorResponse;
 import jakarta.validation.ConstraintViolationException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -11,6 +13,8 @@ import org.springframework.web.multipart.MaxUploadSizeExceededException;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
+    private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
     @ExceptionHandler(AccessDeniedException.class)
     public ResponseEntity<ErrorResponse> handleAccessDeniedException(AccessDeniedException e) {
@@ -58,8 +62,16 @@ public class GlobalExceptionHandler {
                 .body(ErrorResponse.of(400, "INVALID_REQUEST", message));
     }
 
+    /**
+     * 위에서 처리하지 못한 예외를 받는 마지막 그물이다.
+     *
+     * 사용자에게는 내부 사정을 감춘 일반 메시지를 주되, 로그에는 스택 트레이스를
+     * 반드시 남긴다. 남기지 않으면 500이 났다는 사실만 알고 원인은 영영 알 수 없다.
+     * 실제로 결제 500을 디버깅하는데 로그가 한 줄도 없어 코드를 뒤져야 했다.
+     */
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleException(Exception e) {
+        log.error("처리되지 않은 예외", e);
         return ResponseEntity
                 .internalServerError()
                 .body(ErrorResponse.of(500, "INTERNAL_SERVER_ERROR", "서버 내부 오류가 발생했습니다."));
