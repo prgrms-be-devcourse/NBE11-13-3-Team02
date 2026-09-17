@@ -98,4 +98,8 @@ public enum ErrorCode {
 
     private final HttpStatus status;
     private final String message;
+
+    public String getMessage() {
+        return message;
+    }
 }

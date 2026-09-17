@@ -1,0 +1,106 @@
+name: gachisa-full
+
+# 팀 온보딩·발표 재현용 전체 실행 구성입니다.
+# 평소 로컬 개발용 observability/docker-compose.yml와 동시에 실행하지 마세요.
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: gachisa
+      MYSQL_USER: ${MYSQL_USER:-gachisa}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-gachisa1234}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-local-root-password}
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    volumes:
+      - gachisa-mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p${MYSQL_ROOT_PASSWORD:-local-root-password}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7.4-alpine
+    command: redis-server --appendonly yes
+    volumes:
+      - gachisa-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  backend:
+    build:
+      context: ./gachisa-backend
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/gachisa?serverTimezone=Asia/Seoul&characterEncoding=UTF-8
+      SPRING_DATASOURCE_USERNAME: ${MYSQL_USER:-gachisa}
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_PASSWORD:-gachisa1234}
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
+      JWT_SECRET: ${JWT_SECRET:-local-development-jwt-secret-change-before-deployment}
+      TOSS_SECRET_KEY: ${TOSS_SECRET_KEY:-}
+      KAKAO_CLIENT_ID: ${KAKAO_CLIENT_ID:-}
+      KAKAO_CLIENT_SECRET: ${KAKAO_CLIENT_SECRET:-}
+      NAVER_CLIENT_ID: ${NAVER_CLIENT_ID:-}
+      NAVER_CLIENT_SECRET: ${NAVER_CLIENT_SECRET:-}
+      FILE_UPLOAD_DIR: /app/uploads
+    ports:
+      - "8080:8080"
+    volumes:
+      - gachisa-uploads:/app/uploads
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./gachisa-frontend
+    environment:
+      VITE_API_PROXY_TARGET: http://backend:8080
+      VITE_TOSS_CLIENT_KEY: ${VITE_TOSS_CLIENT_KEY:-}
+      VITE_KAKAO_CLIENT_ID: ${VITE_KAKAO_CLIENT_ID:-}
+      VITE_NAVER_CLIENT_ID: ${VITE_NAVER_CLIENT_ID:-}
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+
+  prometheus:
+    image: prom/prometheus:v3.5.1
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --web.enable-remote-write-receiver
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./observability/prometheus/prometheus.full.yml:/etc/prometheus/prometheus.yml:ro
+      - gachisa-prometheus-data:/prometheus
+    depends_on:
+      - backend
+
+  grafana:
+    image: grafana/grafana:12.0.2
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+    volumes:
+      - gachisa-grafana-data:/var/lib/grafana
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+
+volumes:
+  gachisa-mysql-data:
+  gachisa-redis-data:
+  gachisa-uploads:
+  gachisa-prometheus-data:
+  gachisa-grafana-data:
