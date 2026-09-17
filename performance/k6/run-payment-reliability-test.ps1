@@ -7,6 +7,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $k6Path = 'C:\Program Files\k6\k6.exe'
+$reset = Join-Path $PSScriptRoot 'reset-payment-queue.ps1'
 $prepare = Join-Path $PSScriptRoot 'prepare-queue-load-test.ps1'
 $script = Join-Path $PSScriptRoot 'payment-reliability.js'
 $count = if ($TestType -eq 'payment_concurrent') { 10 } else { 1 }
@@ -18,6 +19,7 @@ $label = switch ($TestType) {
     'webhook_duplicate' { 'Toss 웹훅 중복 전달 테스트' }
 }
 
+& $reset
 & $prepare -UserCount $count -BaseUrl $BaseUrl
 $testId = "$label - $((Get-Date).ToString('yyyyMMddHHmmss'))"
 $env:BASE_URL = $BaseUrl

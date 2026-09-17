@@ -26,7 +26,7 @@ import org.springframework.web.bind.annotation.RestController;
  * k6 대기열 테스트를 위한 로컬 전용 데이터 생성기입니다.
  * local 프로필 이외에는 빈 자체가 등록되지 않으므로 운영 환경에 노출되지 않습니다.
  */
-@Profile("local")
+@Profile({"local", "docker"})
 @RestController
 @RequestMapping("/api/dev/load-test")
 @RequiredArgsConstructor

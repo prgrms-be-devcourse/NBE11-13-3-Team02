@@ -35,6 +35,8 @@ services:
   redis:
     image: redis:7.4-alpine
     command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
     volumes:
       - gachisa-redis-data:/data
     healthcheck:
@@ -48,13 +50,18 @@ services:
       context: ./gachisa-backend
     environment:
       SPRING_PROFILES_ACTIVE: docker
+      JAVA_TOOL_OPTIONS: -Duser.timezone=Asia/Seoul
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/gachisa?serverTimezone=Asia/Seoul&characterEncoding=UTF-8
       SPRING_DATASOURCE_USERNAME: ${MYSQL_USER:-gachisa}
       SPRING_DATASOURCE_PASSWORD: ${MYSQL_PASSWORD:-gachisa1234}
       SPRING_DATA_REDIS_HOST: redis
       SPRING_DATA_REDIS_PORT: 6379
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET 이 없습니다. infisical run --env=dev -- 로 실행하세요}
       TOSS_SECRET_KEY: ${TOSS_SECRET_KEY:-}
+      # 전체 Docker 환경에서 k6 결제·환불 검증을 재현하기 위한 로컬 PG 모드입니다.
+      PAYMENT_TOSS_LOCAL_DEMO_ENABLED: "true"
       KAKAO_CLIENT_ID: ${KAKAO_CLIENT_ID:-}
       KAKAO_CLIENT_SECRET: ${KAKAO_CLIENT_SECRET:-}
       NAVER_CLIENT_ID: ${NAVER_CLIENT_ID:-}
@@ -123,8 +130,10 @@ services:
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+    # 저장소의 provisioned JSON 두 개만 항상 노출하기 위해 Grafana DB를 임시 저장합니다.
+    tmpfs:
+      - /var/lib/grafana
     volumes:
-      - gachisa-grafana-data:/var/lib/grafana
       - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
       - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
     depends_on:
@@ -135,4 +144,3 @@ volumes:
   gachisa-redis-data:
   gachisa-uploads:
   gachisa-prometheus-data:
-  gachisa-grafana-data:

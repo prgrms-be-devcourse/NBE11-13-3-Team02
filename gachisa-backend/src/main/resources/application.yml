@@ -10,6 +10,10 @@ spring:
     username: ${DB_USERNAME}
     password: ${DB_PASSWORD}
     driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      # 존재하지 않는 주문을 잠금 조회한 뒤 동시에 INSERT할 때 MySQL
+      # REPEATABLE_READ의 gap lock끼리 교착되는 것을 방지한다.
+      transaction-isolation: TRANSACTION_READ_COMMITTED
 
   data:
     redis:

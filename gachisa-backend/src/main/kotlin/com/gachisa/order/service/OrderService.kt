@@ -32,7 +32,9 @@ class OrderService(
 
     @Transactional
     fun createOrderIfAbsent(command: OrderCreateCommand): OrderResponse {
-        val existingOrder = orderRepository.findByParticipationId(command.participationId).orElse(null)
+        // 동일 결제의 중복 확정이 동시에 주문을 만들지 못하도록 현재 읽기와
+        // 행 잠금을 사용합니다. READ_COMMITTED에서는 없는 행에 gap lock을 잡지 않습니다.
+        val existingOrder = orderRepository.findByParticipationIdForUpdate(command.participationId).orElse(null)
         if (existingOrder != null) return OrderResponse.from(existingOrder)
 
         val groupBuy = groupBuyService.getPaymentInfo(command.groupBuyId)

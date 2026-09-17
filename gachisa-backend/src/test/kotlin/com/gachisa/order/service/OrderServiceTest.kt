@@ -50,7 +50,7 @@ class OrderServiceTest {
     @Test
     fun createsWaitingOrderAfterPaymentCompletion() {
         val command = OrderCreateCommand(10L, 20L, 30L, 40L, 2, 12_600)
-        given(orderRepository.findByParticipationId(10L)).willReturn(Optional.empty())
+        given(orderRepository.findByParticipationIdForUpdate(10L)).willReturn(Optional.empty())
         given(groupBuyService.getPaymentInfo(40L))
                 .willReturn(GroupBuyPaymentInfo(40L, 50L, BigDecimal("0.20")))
         given(productService.getProduct(50L)).willReturn(productResponse())
@@ -81,7 +81,7 @@ class OrderServiceTest {
     @Test
     fun returnsExistingOrderForDuplicatePaymentCompletion() {
         val existingOrder = order(1L, DeliveryStatus.PREPARING)
-        given(orderRepository.findByParticipationId(10L)).willReturn(Optional.of(existingOrder))
+        given(orderRepository.findByParticipationIdForUpdate(10L)).willReturn(Optional.of(existingOrder))
 
         val response = orderService.createOrderIfAbsent(
                 OrderCreateCommand(10L, 20L, 30L, 40L, 2, 12_600))
