@@ -68,9 +68,29 @@ function metricValue(metric, result) {
 function recordCount(metric, count, tags) {
   for (let i = 0; i < Math.max(0, Math.round(count)); i += 1) metric.add(1, tags);
 }
+function waitForAdmission(user, queueToken, initialStatus) {
+  let status = initialStatus;
+  for (let attempt = 0; status === 'WAITING' && attempt < 40; attempt += 1) {
+    sleep(0.25);
+    const response = http.get(
+      `${baseUrl}/api/group-buys/${data.groupBuyId}/queue-token/${queueToken}/status`,
+      { headers: headers(user), tags: { phase: 'payment' } },
+    );
+    if (response.status !== 200) {
+      console.error(`queue status failed: ${response.status} ${response.body}`);
+      return false;
+    }
+    status = json(response).status;
+  }
+  return status === 'ADMITTED';
+}
 function makePaid(user) {
   const queue = http.post(`${baseUrl}/api/group-buys/${data.groupBuyId}/queue-token`, null, { headers: headers(user), tags: { phase: 'payment' } });
-  const q = json(queue); if (queue.status !== 201 || q.status !== 'ADMITTED') { console.error(`queue failed: ${queue.status} ${queue.body}`); return null; }
+  const q = json(queue);
+  if (queue.status !== 201 || !q.queueToken || !waitForAdmission(user, q.queueToken, q.status)) {
+    console.error(`queue failed: ${queue.status} ${queue.body}`);
+    return null;
+  }
   const p = post(`/api/group-buys/${data.groupBuyId}/participations`, { quantity: 1 }, headers(user), { phase: 'payment' });
   if (p.status !== 201) { console.error(`participation failed: ${p.status} ${p.body}`); return null; }
   const participationId = json(p).result.participationId;
