@@ -2,6 +2,19 @@ name: gachisa-full
 
 # 팀 온보딩·발표 재현용 전체 실행 구성입니다.
 # 평소 로컬 개발용 observability/docker-compose.yml와 동시에 실행하지 마세요.
+#
+# 시크릿(JWT_SECRET 등)은 Infisical이 원본입니다. backend/frontend가 서로 다른
+# Infisical 프로젝트(.infisical.json)를 쓰기 때문에 저장소 루트에서 `infisical run`을
+# 바로 쓸 수 없습니다 - `./run-docker-full.sh`가 두 프로젝트의 시크릿을 셸에 합쳐
+# 넣은 뒤 이 파일로 docker compose를 실행합니다. 직접 이 파일을 쓰지 말고 그 스크립트를
+# 통해 실행하세요.
+#
+# 챗봇의 JWT_SECRET/GEMINI_API_KEY는 Infisical 대상이 아니라(GEMINI_API_KEY는
+# 개인 발급 무료 티어 키) gachisa-chatbot/.env 파일(setup.sh가 생성)에서 그대로
+# 읽습니다. 이 파일이 없으면 먼저 ./setup.sh 를 실행하고, .env의 GEMINI_API_KEY를
+# 본인의 개인 키로 채워두세요.
+#
+#   ./run-docker-full.sh up --build
 services:
   mysql:
     image: mysql:8.4
@@ -40,7 +53,7 @@ services:
       SPRING_DATASOURCE_PASSWORD: ${MYSQL_PASSWORD:-gachisa1234}
       SPRING_DATA_REDIS_HOST: redis
       SPRING_DATA_REDIS_PORT: 6379
-      JWT_SECRET: ${JWT_SECRET:-local-development-jwt-secret-change-before-deployment}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET 이 없습니다. infisical run --env=dev -- 로 실행하세요}
       TOSS_SECRET_KEY: ${TOSS_SECRET_KEY:-}
       KAKAO_CLIENT_ID: ${KAKAO_CLIENT_ID:-}
       KAKAO_CLIENT_SECRET: ${KAKAO_CLIENT_SECRET:-}
@@ -62,18 +75,30 @@ services:
       context: ./gachisa-frontend
     environment:
       VITE_API_PROXY_TARGET: http://backend:8080
-      # 챗봇은 아직 이 compose 에 없고 호스트에서 따로 돈다. 컨테이너 안의
-      # localhost 는 컨테이너 자신이라, 호스트를 가리키는 이름이 따로 필요하다.
-      VITE_CHAT_PROXY_TARGET: ${VITE_CHAT_PROXY_TARGET:-http://host.docker.internal:8000}
+      VITE_CHAT_PROXY_TARGET: http://chatbot:8000
       VITE_TOSS_CLIENT_KEY: ${VITE_TOSS_CLIENT_KEY:-}
       VITE_KAKAO_CLIENT_ID: ${VITE_KAKAO_CLIENT_ID:-}
       VITE_NAVER_CLIENT_ID: ${VITE_NAVER_CLIENT_ID:-}
     ports:
       - "5173:5173"
-    # Docker Desktop(맥·윈도우)은 host.docker.internal 을 기본 제공하지만
-    # 리눅스는 아니다. 이 줄이 있어야 어느 환경에서든 같게 동작한다.
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+    depends_on:
+      - backend
+      - chatbot
+
+  chatbot:
+    build:
+      context: ./gachisa-chatbot
+    # JWT_SECRET, GEMINI_API_KEY 는 Infisical 이 아니라 setup.sh 가 만들어 둔
+    # gachisa-chatbot/.env 를 그대로 읽는다 (로컬 실행과 같은 원본).
+    # 이 파일이 없으면 `./setup.sh` 를 먼저 실행해야 한다.
+    env_file:
+      - ./gachisa-chatbot/.env
+    environment:
+      # .env 의 SPRING_BASE_URL(localhost:8080)은 로컬 실행용이라 도커 네트워크에서
+      # 안 통한다. environment가 env_file보다 우선하므로 여기서 덮어쓴다.
+      SPRING_BASE_URL: http://backend:8080
+    ports:
+      - "8000:8000"
     depends_on:
       - backend
 
