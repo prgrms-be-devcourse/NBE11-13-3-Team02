@@ -143,6 +143,30 @@ export default function GroupBuyListPage() {
 
   useEffect(() => fetchList(), [fetchList])
 
+  // 참여 인원은 다른 사람의 참여로도 계속 바뀐다. 그런데 이 목록은 마운트될 때
+  // 한 번만 불러오므로, 화면을 띄워둔 채 다른 탭에서 참여하거나 결제를 마치고
+  // 돌아오면 예전 숫자가 그대로 남는다.
+  //
+  // 그래서 화면이 다시 보이는 순간 다시 불러온다. 두 경우를 덮는다.
+  //   visibilitychange : 탭을 옮겼다 돌아온 경우
+  //   pageshow(persisted) : 뒤로가기로 bfcache 에서 복원된 경우.
+  //                         이때는 JS 가 다시 실행되지 않아 화면이 통째로 과거다.
+  // pageshow 는 일반 로드 때도 뜨므로 persisted 일 때만 처리해 중복 호출을 피한다.
+  useEffect(() => {
+    const refetchOnVisible = () => {
+      if (document.visibilityState === 'visible') fetchList()
+    }
+    const refetchOnRestore = (event) => {
+      if (event.persisted) fetchList()
+    }
+    document.addEventListener('visibilitychange', refetchOnVisible)
+    window.addEventListener('pageshow', refetchOnRestore)
+    return () => {
+      document.removeEventListener('visibilitychange', refetchOnVisible)
+      window.removeEventListener('pageshow', refetchOnRestore)
+    }
+  }, [fetchList])
+
   const activeCategory = findCategoryById(categories, categoryId)
   const heading = keyword
     ? `'${keyword}' 검색 결과`
