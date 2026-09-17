@@ -27,6 +27,7 @@ import ProductCreatePage from '../pages/ProductCreatePage.jsx'
 import ProductEditPage from '../pages/ProductEditPage.jsx'
 import MyProductsPage from '../pages/MyProductsPage.jsx'
 import CategoryManagePage from '../pages/CategoryManagePage.jsx'
+import AdminUserManagePage from '../pages/AdminUserManagePage.jsx'
 import ConcurrencyDemoPage from '../pages/ConcurrencyDemoPage.jsx'
 
 import MyPage from '../pages/MyPage.jsx'
@@ -78,6 +79,7 @@ export default function Router() {
             <Route path="/admin/categories" element={<CategoryManagePage />} />
             <Route path="/admin/deliveries" element={<AdminDeliveryPage />} />
             <Route path="/admin/chat-usage" element={<AdminChatUsagePage />} />
+            <Route path="/admin/users" element={<AdminUserManagePage />} />
           </Route>
         </Route>
 

@@ -8,6 +8,8 @@ export const login = (email, password) =>
 
 export const logout = () => axiosInstance.post('/auth/logout')
 
+export const withdraw = (password) => axiosInstance.post('/auth/withdraw', { password })
+
 export const loginWithKakao = (code, redirectUri) =>
   axiosInstance.post('/auth/oauth/kakao', { code, redirectUri })
 

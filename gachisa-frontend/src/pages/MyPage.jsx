@@ -8,6 +8,11 @@ import TextField from '@mui/material/TextField'
 import Button from '@mui/material/Button'
 import Alert from '@mui/material/Alert'
 import Divider from '@mui/material/Divider'
+import Dialog from '@mui/material/Dialog'
+import DialogTitle from '@mui/material/DialogTitle'
+import DialogContent from '@mui/material/DialogContent'
+import DialogContentText from '@mui/material/DialogContentText'
+import DialogActions from '@mui/material/DialogActions'
 import { useAuth } from '../context/AuthContext.jsx'
 import * as userApi from '../api/userApi'
 import { getErrorMessage } from '../api/errorMessage'
@@ -24,7 +29,7 @@ export default function MyPage() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const returnTo = searchParams.get('returnTo')
-  const { user, refreshUser } = useAuth()
+  const { user, refreshUser, withdraw } = useAuth()
   const [name, setName] = useState(user?.name ?? '')
   const [showPasswordForm, setShowPasswordForm] = useState(false)
   const [currentPassword, setCurrentPassword] = useState('')
@@ -32,6 +37,11 @@ export default function MyPage() {
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const [submitting, setSubmitting] = useState(false)
+
+  const [withdrawOpen, setWithdrawOpen] = useState(false)
+  const [withdrawPassword, setWithdrawPassword] = useState('')
+  const [withdrawError, setWithdrawError] = useState('')
+  const [withdrawing, setWithdrawing] = useState(false)
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -53,6 +63,25 @@ export default function MyPage() {
       setError(getErrorMessage(err, '정보 수정에 실패했습니다.'))
     } finally {
       setSubmitting(false)
+    }
+  }
+
+  const openWithdraw = () => {
+    setWithdrawPassword('')
+    setWithdrawError('')
+    setWithdrawOpen(true)
+  }
+
+  const handleWithdraw = async () => {
+    setWithdrawError('')
+    setWithdrawing(true)
+    try {
+      await withdraw(withdrawPassword || undefined)
+      navigate('/login', { replace: true })
+    } catch (err) {
+      setWithdrawError(getErrorMessage(err, '회원 탈퇴에 실패했습니다.'))
+    } finally {
+      setWithdrawing(false)
     }
   }
 
@@ -144,6 +173,51 @@ export default function MyPage() {
         </Box>
       </Paper>
       <SavedDeliveryAddressManager onSaved={returnTo ? () => navigate(returnTo) : undefined} />
+
+      <Paper sx={{ p: 3, mt: 3, maxWidth: 480, borderColor: 'error.main', borderWidth: 1, borderStyle: 'solid' }}>
+        <Typography variant="subtitle1" fontWeight={700} color="error.main" gutterBottom>
+          회원 탈퇴
+        </Typography>
+        <Divider sx={{ mb: 2 }} />
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          탈퇴하면 계정이 즉시 비활성화되고 되돌릴 수 없습니다. 같은 이메일로는 24시간 이후에 다시 가입할 수
+          있습니다.
+        </Typography>
+        <Button variant="outlined" color="error" onClick={openWithdraw}>
+          회원 탈퇴
+        </Button>
+      </Paper>
+
+      <Dialog open={withdrawOpen} onClose={() => setWithdrawOpen(false)} fullWidth maxWidth="xs">
+        <DialogTitle>정말 탈퇴하시겠습니까?</DialogTitle>
+        <DialogContent>
+          <DialogContentText sx={{ mb: 2 }}>
+            탈퇴 후에는 되돌릴 수 없습니다. 비밀번호로 로그인하는 계정이라면 확인을 위해 비밀번호를 입력해주세요.
+            소셜 로그인 전용 계정은 비워두셔도 됩니다.
+          </DialogContentText>
+          <TextField
+            label="비밀번호"
+            type="password"
+            value={withdrawPassword}
+            onChange={(e) => setWithdrawPassword(e.target.value)}
+            fullWidth
+            autoFocus
+          />
+          {withdrawError && (
+            <Alert severity="error" sx={{ mt: 2 }}>
+              {withdrawError}
+            </Alert>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setWithdrawOpen(false)} disabled={withdrawing}>
+            취소
+          </Button>
+          <Button color="error" variant="contained" onClick={handleWithdraw} disabled={withdrawing}>
+            {withdrawing ? '탈퇴 처리 중...' : '탈퇴하기'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   )
 }

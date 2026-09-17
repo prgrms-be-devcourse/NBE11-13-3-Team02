@@ -78,6 +78,12 @@ export function AuthProvider({ children }) {
     }
   }, [])
 
+  const withdraw = useCallback(async (password) => {
+    await authApi.withdraw(password)
+    clearAccessToken()
+    setUser(null)
+  }, [])
+
   const value = useMemo(
     () => ({
       user,
@@ -91,9 +97,10 @@ export function AuthProvider({ children }) {
       loginWithNaver,
       signUp,
       logout,
+      withdraw,
       refreshUser: fetchAndSetUser,
     }),
-    [user, initializing, login, loginWithKakao, loginWithNaver, signUp, logout, fetchAndSetUser],
+    [user, initializing, login, loginWithKakao, loginWithNaver, signUp, logout, withdraw, fetchAndSetUser],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

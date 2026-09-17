@@ -139,6 +139,7 @@ export default function AppLayout() {
                     <MenuItem onClick={() => goTo('/my/products')}>내 상품 관리</MenuItem>
                     <MenuItem onClick={() => goTo('/products/new')}>상품 등록</MenuItem>
                     <MenuItem onClick={() => goTo('/group-buys/new')}>공동구매 등록</MenuItem>
+                    <MenuItem onClick={() => goTo('/my/page')}>마이페이지</MenuItem>
                     <MenuItem onClick={() => goTo('/dev/concurrency')}>동시성 검증</MenuItem>
                   </>
                 )}
@@ -148,6 +149,8 @@ export default function AppLayout() {
                     <MenuItem onClick={() => goTo('/admin/categories')}>카테고리 관리</MenuItem>
                     <MenuItem onClick={() => goTo('/admin/deliveries')}>배송 관리</MenuItem>
                     <MenuItem onClick={() => goTo('/admin/chat-usage')}>챗봇 토큰 사용량</MenuItem>
+                    <MenuItem onClick={() => goTo('/admin/users')}>회원 관리</MenuItem>
+                    <MenuItem onClick={() => goTo('/my/page')}>마이페이지</MenuItem>
                     <MenuItem onClick={() => goTo('/dev/concurrency')}>동시성 검증</MenuItem>
                   </>
                 )}
