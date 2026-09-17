@@ -456,7 +456,7 @@ curl -H "Authorization: Bearer $ADMIN_TOKEN" localhost:8000/chat/admin/quality
 로컬 수동 확인용 토큰 발급:
 
 ```bash
-uv run python scripts/dev_token.py 7 "안세호" ROLE_BUYER
+uv run python scripts/dev_token.py 7 "안서호" ROLE_BUYER
 uv run python scripts/dev_token.py 9 "관리자" ROLE_ADMIN    # 관리자 API용
 ```
 

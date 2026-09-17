@@ -39,7 +39,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 # 팀원 목록. 회의록에 이 이름들이 나오면 담당자로 잡는다.
 # git shortlog 로 확인한 실제 기여자다.
-MEMBERS = ["안세호", "김주형", "이석우"]
+MEMBERS = ["안서호", "김주형", "이석우"]
 
 MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.5-flash")
 

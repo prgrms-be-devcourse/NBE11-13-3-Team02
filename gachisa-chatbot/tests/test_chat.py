@@ -70,7 +70,7 @@ def test_스트림은_start_token_done_순서로_내려온다(client, make_token
         response = client.post(
             "/chat/stream",
             json={"message": "배송 조회"},
-            headers={"Authorization": f"Bearer {make_token(name='안세호')}"},
+            headers={"Authorization": f"Bearer {make_token(name='안서호')}"},
         )
     finally:
         app.dependency_overrides.clear()
@@ -156,7 +156,7 @@ def test_spring_호출에_사용자_토큰이_그대로_전달된다(client, mak
     def handler(request: httpx.Request) -> httpx.Response:
         seen["url"] = str(request.url)
         seen["authorization"] = request.headers["Authorization"]
-        return httpx.Response(200, json={"id": 7, "name": "안세호"})
+        return httpx.Response(200, json={"id": 7, "name": "안서호"})
 
     stub = SpringClient(
         base_url="http://spring.test",
@@ -165,7 +165,7 @@ def test_spring_호출에_사용자_토큰이_그대로_전달된다(client, mak
     )
     app.dependency_overrides[get_spring_client] = lambda: stub
 
-    token = make_token(user_id=7, name="안세호")
+    token = make_token(user_id=7, name="안서호")
     try:
         response = client.get(
             "/chat/upstream-check",

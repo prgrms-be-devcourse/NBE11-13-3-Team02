@@ -19,7 +19,7 @@ from tests.fakes import (
     turn,
 )
 
-USER = CurrentUser(user_id=7, name="안세호", role="ROLE_BUYER", access_token="tok-abc")
+USER = CurrentUser(user_id=7, name="안서호", role="ROLE_BUYER", access_token="tok-abc")
 
 
 def spring_stub(handler) -> SpringClient:
@@ -95,7 +95,7 @@ def orders_spring():
                     "deliveryStatus": "SHIPPING",
                     "carrier": "한진택배",
                     "trackingNumber": "1234567890",
-                    "recipientName": "안세호",
+                    "recipientName": "안서호",
                     "recipientPhone": "010-1234-5678",
                     "zipCode": "06234",
                     "address": "서울시 강남구 테헤란로 1",

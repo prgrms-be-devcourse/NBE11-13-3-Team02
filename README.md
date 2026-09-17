@@ -14,7 +14,8 @@
 
 > **팀 작업 흐름은 [WORKFLOW.md](./WORKFLOW.md) 를 보세요.** 회의 → 이슈 → 브랜치 →
 > PR → CI → 머지까지의 단계와, 그중 자동화된 부분(회의록 정리, 라우팅 회귀 검사)을
-> 정리했습니다.
+> 정리했습니다. 회의록 정리 도구 사용법은
+> [docs/meetings/README.md](./docs/meetings/README.md) 에 따로 있습니다.
 
 ## 주요 기능
 
