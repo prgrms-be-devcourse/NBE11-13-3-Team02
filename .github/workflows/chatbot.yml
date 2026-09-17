@@ -25,7 +25,12 @@ jobs:
         with:
           enable-cache: true
       - run: uv sync --all-groups
+        # Settings 는 필수값이 없으면 임포트 시점에 터진다. 로컬은 .env 로 채워지지만
+        # CI 에는 파일이 없다. 테스트는 실제 값을 쓰지 않으므로 자리만 채운다.
       - run: uv run pytest -q
+        env:
+          JWT_SECRET: ci-placeholder-secret-at-least-64-bytes-long-for-hs512-algorithm-ok
+          GEMINI_API_KEY: ci-placeholder-not-called
 
   # 라우팅 품질이 기준선보다 나빠졌는지 본다.
   #

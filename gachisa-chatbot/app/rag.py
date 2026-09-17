@@ -12,9 +12,9 @@ from app.config import get_settings
 logger = logging.getLogger(__name__)
 
 FAQ_DIR = Path(__file__).parent / "faq"
-# 기본값은 Settings.gemini_embed_model 이다. 여기 상수는 그 기본값을 한곳에 두기
-# 위한 것이고, 실제로 쓰는 값은 설정에서 온다.
-EMBED_MODEL = get_settings().gemini_embed_model
+# 임베딩 모델은 설정에서 온다(GEMINI_EMBED_MODEL). 임포트 시점이 아니라 호출 때
+# 읽는다 - 모듈을 불러오는 것만으로 설정이 필요해지면, 설정 없이 임포트하는 경로
+# (테스트 수집, 도구 스크립트)가 전부 깨진다.
 # 3072차원 전체는 이 정도 규모에 과하다. 축소해도 검색 품질 차이가 거의 없다.
 EMBED_DIM = 768
 
@@ -41,7 +41,7 @@ def load_chunks(directory: Path = FAQ_DIR) -> list[FaqChunk]:
 
 async def _embed(client: Any, texts: list[str], task_type: str) -> list[list[float]]:
     response = await client.aio.models.embed_content(
-        model=EMBED_MODEL,
+        model=get_settings().gemini_embed_model,
         contents=texts,
         config=types.EmbedContentConfig(
             task_type=task_type, output_dimensionality=EMBED_DIM
