@@ -42,11 +42,12 @@ def get_faq_index(request: Request) -> FaqIndex:
 FaqDep = Annotated[FaqIndex, Depends(get_faq_index)]
 
 
-def get_question_router(request: Request) -> QuestionRouter:
+def get_question_router(request: Request) -> QuestionRouter | None:
+    """기동 때 예시 임베딩이 실패했으면 None 이다. run_agent 가 일반 경로로 흘린다."""
     return request.app.state.question_router
 
 
-QuestionRouterDep = Annotated[QuestionRouter, Depends(get_question_router)]
+QuestionRouterDep = Annotated[QuestionRouter | None, Depends(get_question_router)]
 
 
 def get_quality(request: Request) -> QualityMetrics:

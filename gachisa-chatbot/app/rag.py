@@ -7,10 +7,14 @@ from typing import Any
 
 from google.genai import types
 
+from app.config import get_settings
+
 logger = logging.getLogger(__name__)
 
 FAQ_DIR = Path(__file__).parent / "faq"
-EMBED_MODEL = "gemini-embedding-001"
+# 기본값은 Settings.gemini_embed_model 이다. 여기 상수는 그 기본값을 한곳에 두기
+# 위한 것이고, 실제로 쓰는 값은 설정에서 온다.
+EMBED_MODEL = get_settings().gemini_embed_model
 # 3072차원 전체는 이 정도 규모에 과하다. 축소해도 검색 품질 차이가 거의 없다.
 EMBED_DIM = 768
 

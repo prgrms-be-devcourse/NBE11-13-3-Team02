@@ -485,3 +485,35 @@ def test_프롬프트_버전과_digest를_조회한다(client, make_token):
         assert len(row["digest"]) == 12
         assert row["version"]
         assert row["changelog"]
+
+
+def test_라우터_빌드가_실패해도_챗봇은_뜬다(monkeypatch, make_token):
+    """라우팅은 호출을 아끼는 최적화다. 임베딩 한도에 걸렸다고 서비스 전체가
+    안 뜨면 안 된다. 라우터 없이 뜨고, 기존 동작(일반 경로)으로 답해야 한다."""
+
+    async def fake_faq_build(cls, client, directory=None):
+        return FakeFaq()
+
+    async def failing_router_build(cls, client, **kwargs):
+        raise RuntimeError("429 RESOURCE_EXHAUSTED")
+
+    monkeypatch.setattr(FaqIndex, "build", classmethod(fake_faq_build))
+    monkeypatch.setattr(QuestionRouter, "build", classmethod(failing_router_build))
+
+    fake = FakeGenai([text_turn("안녕하세요")])
+    app.dependency_overrides[get_genai_client] = lambda: fake
+    try:
+        with TestClient(app) as test_client:
+            response = test_client.post(
+                "/chat/stream",
+                json={"message": "안녕"},
+                headers={"Authorization": f"Bearer {make_token()}"},
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    events = _parse_events(response.text)
+    route = next(data for name, data in events if name == "route")
+    assert route["route"] == "general"
+    assert route["reason"] == "no-router"

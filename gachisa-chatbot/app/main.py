@@ -28,7 +28,20 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.faq = await FaqIndex.build(app.state.genai)
     # 예시 문장 임베딩은 기동 시 한 번만 만든다. 요청마다 다시 뽑으면 라우팅이
     # 아끼려는 호출보다 더 많은 호출을 쓰게 된다.
-    app.state.question_router = await QuestionRouter.build(app.state.genai)
+    #
+    # 여기서 실패해도 기동은 계속한다. 라우팅은 호출을 아끼는 최적화이지 기능이
+    # 아니다. 라우터가 없으면 run_agent 가 전부 일반 경로로 흘려보내 라우팅 이전과
+    # 똑같이 동작한다. 임베딩 한도(분당 100회, 하루 1000회)에 걸렸다는 이유로
+    # 챗봇 전체가 안 뜨는 쪽이 훨씬 나쁘다.
+    try:
+        app.state.question_router = await QuestionRouter.build(app.state.genai)
+    except Exception:
+        logging.getLogger(__name__).warning(
+            "라우터 예시 임베딩 실패. 라우팅 없이 기동합니다(기존 동작). "
+            "원인이 해소되면 재시작하세요.",
+            exc_info=True,
+        )
+        app.state.question_router = None
     app.state.quality = QualityMetrics()
     app.state.chat_usage_limiter = ChatUsageLimiter(
         burst_capacity=settings.chat_burst_capacity,
