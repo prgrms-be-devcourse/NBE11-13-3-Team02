@@ -41,6 +41,14 @@ ROOT = Path(__file__).resolve().parents[1]
 # git shortlog 로 확인한 실제 기여자다.
 MEMBERS = ["안서호", "김주형", "이석우"]
 
+# 회의록의 한글 이름 → GitHub 계정. 이슈를 만들 때 담당자로 건다.
+# 여기 없는 이름이나 "미정"은 담당자 없이 만든다.
+GITHUB_HANDLES = {
+    "안서호": "ahnseho02",
+    "이석우": "lucku-1111",
+    "김주형": "JuhyungKim-dev",
+}
+
 MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.5-flash")
 
 SCHEMA = {
@@ -159,20 +167,33 @@ def create_issues(todos: list[dict], source: Path, dry_run: bool) -> None:
     print("=" * 66)
     for todo in todos:
         title = f"[{todo['owner']}] {todo['title']}" if todo["owner"] != "미정" else todo["title"]
+        handle = GITHUB_HANDLES.get(todo["owner"])
+        command = ["gh", "issue", "create", "--title", title, "--body", issue_body(todo, source)]
+        if handle:
+            command += ["--assignee", handle]
+
         if dry_run:
             # repr 로 감싸면 줄바꿈이 \n 문자 그대로 들어가 본문이 깨진다.
             # shlex.quote 는 셸이 그대로 되읽을 수 있게 인용한다.
             print("\ngh issue create \\")
             print(f"  --title {shlex.quote(title)} \\")
+            if handle:
+                print(f"  --assignee {shlex.quote(handle)} \\")
             print(f"  --body {shlex.quote(issue_body(todo, source))}")
             continue
-        result = subprocess.run(
-            ["gh", "issue", "create", "--title", title, "--body", issue_body(todo, source)],
-            capture_output=True,
-            text=True,
-        )
+
+        result = subprocess.run(command, capture_output=True, text=True)
+
+        # 담당자 지정만 실패하는 경우가 있다(리포지토리 협업자가 아니거나 계정명이
+        # 바뀐 경우). 그때 이슈까지 못 만들면 손해가 크므로 담당자를 빼고 한 번 더 한다.
+        if result.returncode != 0 and handle:
+            print(f"  ! {handle} 을(를) 담당자로 걸지 못했습니다. 담당자 없이 만듭니다.")
+            result = subprocess.run(command[:-2], capture_output=True, text=True)
+            handle = None
+
         if result.returncode == 0:
-            print(f"  ✅ {title}\n     {result.stdout.strip()}")
+            assigned = f"  (담당 {handle})" if handle else ""
+            print(f"  ✅ {title}{assigned}\n     {result.stdout.strip()}")
         else:
             print(f"  ❌ {title}\n     {result.stderr.strip()}")
 
