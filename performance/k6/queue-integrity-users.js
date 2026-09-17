@@ -1,6 +1,6 @@
 import http from 'k6/http';
 import { check, sleep } from 'k6';
-import { Counter } from 'k6/metrics';
+import { Counter, Gauge } from 'k6/metrics';
 import { SharedArray } from 'k6/data';
 
 const baseUrl = __ENV.BASE_URL || 'http://127.0.0.1:8080';
@@ -20,6 +20,8 @@ const serverReached = new Counter('queue_server_reached');
 const connectionRejected = new Counter('queue_connection_rejected');
 const expectedSuccess = new Counter('queue_expected_success');
 const connectionRetries = new Counter('queue_connection_retries');
+// Grafana가 선택값 없이도 가장 최근 실행을 찾는 기준 시각입니다.
+const testStartedAt = new Gauge('queue_test_started_timestamp');
 
 export const options = {
   scenarios: {
@@ -43,6 +45,7 @@ export const options = {
 
 export default function () {
   const user = testData.users[__VU - 1];
+  testStartedAt.add(Date.now() / 1000);
   attempted.add(1);
 
   let response;

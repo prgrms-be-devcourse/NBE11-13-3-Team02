@@ -60,7 +60,14 @@ foreach ($userCount in $Stages) {
     $testName = "queue-$TestType"
     $resultPath = Join-Path $resultDirectory ("$testName-$userCount.txt")
     $testMode = $TestType
-    $testId = "queue-$userCount-$((Get-Date).ToString('yyyyMMddHHmmss'))"
+    # Grafana 선택 목록에는 내부 식별자 대신 사람이 읽을 수 있는 테스트 이름을 표시합니다.
+    $testDisplayName = switch ($testMode) {
+        'smoke' { '스모크 테스트' }
+        'integrity' { '대기열 정합성 테스트' }
+        'capacity' { '시스템 수용량 테스트' }
+    }
+    # 예: 대기열 정합성 테스트 - 500명 - 20260917103000
+    $testId = "$testDisplayName - ${userCount}명 - $((Get-Date).ToString('yyyyMMddHHmmss'))"
     Write-Host "Grafana k6 testid: $testId" -ForegroundColor DarkGray
     # k6는 요청 실패를 stderr 경고로 출력합니다. PowerShell 예외로 중단하지 않고
     # 전체 요약과 종료 코드를 받아 임계점 후보로 기록합니다.
@@ -91,10 +98,20 @@ foreach ($userCount in $Stages) {
     if ($null -eq $previousPushInterval) { Remove-Item Env:K6_PROMETHEUS_RW_PUSH_INTERVAL -ErrorAction SilentlyContinue } else { $env:K6_PROMETHEUS_RW_PUSH_INTERVAL = $previousPushInterval }
 
     if ($k6ExitCode -ne 0) {
-        $criterion = if ($CorrectnessOnly) { '대기열 정합성 기준' } else { 'k6 성능/정합성 기준' }
+        $criterion = switch ($testMode) {
+            'capacity' { '시스템 수용량 기준(연결 거부 또는 서버 도달 실패)' }
+            'integrity' { '대기열 정합성 기준' }
+            'smoke' { '스모크 기준' }
+            default { 'k6 성능/정합성 기준' }
+        }
         Write-Host "임계점 후보: ${userCount}명 단계에서 $criterion 이 깨졌습니다. 결과: $resultPath" -ForegroundColor Yellow
         break
     }
 
-    Write-Host "통과: ${userCount}명 → admitted=10, waiting=$($userCount - 10)" -ForegroundColor Green
+    $retryMatch = Select-String -LiteralPath $resultPath -Pattern 'queue_connection_retries\.+:\s+(\d+)' | Select-Object -Last 1
+    $retryCount = if ($retryMatch -and $retryMatch.Matches[0].Groups.Count -gt 1) { [int]$retryMatch.Matches[0].Groups[1].Value } else { 0 }
+    Write-Host "정합성 통과(최종 결과): ${userCount}명 → admitted=10, waiting=$($userCount - 10)" -ForegroundColor Green
+    if ($retryCount -gt 0) {
+        Write-Host "주의: 첫 연결에서 $retryCount 건이 거부됐지만 재시도 후 모두 성공했습니다. '첫 요청 무오류'는 아닙니다." -ForegroundColor Yellow
+    }
 }
