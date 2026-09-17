@@ -22,8 +22,8 @@ flowchart LR
     H -->|승인| I["dev 머지"]
     I --> J["시연 · 발표"]
 
-    style B fill:#e8f0fe,stroke:#4285f4
-    style G fill:#e8f0fe,stroke:#4285f4
+    style B fill:#e8f0fe,stroke:#4285f4,color:#174ea6
+    style G fill:#e8f0fe,stroke:#4285f4,color:#174ea6
 ```
 
 파란 칸이 자동화된 단계다. 나머지는 사람이 한다.
