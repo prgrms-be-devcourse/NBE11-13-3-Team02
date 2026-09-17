@@ -9,17 +9,23 @@ from app.api.chat import get_genai_client, get_usage_limiter
 from app.rate_limit import ChatUsageLimiter
 from app.main import app
 from app.rag import FaqIndex
+from app.router import QuestionRouter
 from app.spring_client import SpringClient, get_spring_client
-from tests.fakes import FakeFaq, FakeGenai, call_turn, text_turn
+from tests.fakes import FakeFaq, FakeGenai, FakeRouter, call_turn, text_turn
 
 
 @pytest.fixture
 def client(monkeypatch):
-    # 앱 기동(lifespan)이 FAQ 색인을 만들며 임베딩 API를 호출하지 않도록 막는다.
+    # 앱 기동(lifespan)이 FAQ 색인과 라우터 예시 문장을 임베딩한다. 테스트가
+    # 임베딩 API를 호출하지 않도록 둘 다 막는다.
     async def fake_build(cls, client, directory=None):
         return FakeFaq()
 
+    async def fake_router_build(cls, client, **kwargs):
+        return FakeRouter()
+
     monkeypatch.setattr(FaqIndex, "build", classmethod(fake_build))
+    monkeypatch.setattr(QuestionRouter, "build", classmethod(fake_router_build))
     with TestClient(app) as test_client:
         yield test_client
 
@@ -64,7 +70,7 @@ def test_스트림은_start_token_done_순서로_내려온다(client, make_token
         response = client.post(
             "/chat/stream",
             json={"message": "배송 조회"},
-            headers={"Authorization": f"Bearer {make_token(name='안세호')}"},
+            headers={"Authorization": f"Bearer {make_token(name='안서호')}"},
         )
     finally:
         app.dependency_overrides.clear()
@@ -150,7 +156,7 @@ def test_spring_호출에_사용자_토큰이_그대로_전달된다(client, mak
     def handler(request: httpx.Request) -> httpx.Response:
         seen["url"] = str(request.url)
         seen["authorization"] = request.headers["Authorization"]
-        return httpx.Response(200, json={"id": 7, "name": "안세호"})
+        return httpx.Response(200, json={"id": 7, "name": "안서호"})
 
     stub = SpringClient(
         base_url="http://spring.test",
@@ -159,7 +165,7 @@ def test_spring_호출에_사용자_토큰이_그대로_전달된다(client, mak
     )
     app.dependency_overrides[get_spring_client] = lambda: stub
 
-    token = make_token(user_id=7, name="안세호")
+    token = make_token(user_id=7, name="안서호")
     try:
         response = client.get(
             "/chat/upstream-check",
@@ -422,3 +428,92 @@ def test_관리자는_사용자별_토큰_사용량을_모아_본다(client, mak
 
     assert body["totalInputTokens"] == 300, "전체 합계는 모든 사용자의 누적치를 더한 값이다"
     assert body["totalOutputTokens"] == 60
+
+
+# --- 운영 품질 모니터링 -----------------------------------------------------
+
+
+def test_관리자가_아니면_품질_지표를_볼_수_없다(client, make_token):
+    token = make_token(role="ROLE_BUYER")
+    response = client.get("/chat/admin/quality", headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code == 403
+
+
+def test_대화하면_품질_지표에_경로와_호출수가_쌓인다(client, make_token):
+    fake = FakeGenai([text_turn("네"), text_turn("네")])
+    app.dependency_overrides[get_genai_client] = lambda: fake
+    try:
+        buyer = make_token(user_id=3, name="구매자")
+        for _ in range(2):
+            client.post(
+                "/chat/stream",
+                json={"message": "안녕"},
+                headers={"Authorization": f"Bearer {buyer}"},
+            )
+
+        admin = make_token(user_id=9, name="관리자", role="ROLE_ADMIN")
+        body = client.get(
+            "/chat/admin/quality", headers={"Authorization": f"Bearer {admin}"}
+        ).json()
+    finally:
+        app.dependency_overrides.clear()
+
+    assert body["totalMessages"] == 2
+    # FakeRouter 는 general 을 돌려준다.
+    assert body["routes"] == {"general": 2}
+    assert body["generationCalls"] == 2
+    assert body["callsPerMessage"] == 1.0
+    # 어느 프롬프트에서 나온 숫자인지 남아야 한다.
+    assert body["prompts"] and all("@" in label for label in body["prompts"])
+
+
+def test_관리자가_아니면_프롬프트_버전을_볼_수_없다(client, make_token):
+    token = make_token(role="ROLE_BUYER")
+    response = client.get("/chat/admin/prompts", headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code == 403
+
+
+def test_프롬프트_버전과_digest를_조회한다(client, make_token):
+    admin = make_token(user_id=9, name="관리자", role="ROLE_ADMIN")
+    rows = client.get(
+        "/chat/admin/prompts", headers={"Authorization": f"Bearer {admin}"}
+    ).json()
+
+    names = {row["name"] for row in rows}
+    assert {"agent_system", "faq_system"} <= names
+    for row in rows:
+        assert len(row["digest"]) == 12
+        assert row["version"]
+        assert row["changelog"]
+
+
+def test_라우터_빌드가_실패해도_챗봇은_뜬다(monkeypatch, make_token):
+    """라우팅은 호출을 아끼는 최적화다. 임베딩 한도에 걸렸다고 서비스 전체가
+    안 뜨면 안 된다. 라우터 없이 뜨고, 기존 동작(일반 경로)으로 답해야 한다."""
+
+    async def fake_faq_build(cls, client, directory=None):
+        return FakeFaq()
+
+    async def failing_router_build(cls, client, **kwargs):
+        raise RuntimeError("429 RESOURCE_EXHAUSTED")
+
+    monkeypatch.setattr(FaqIndex, "build", classmethod(fake_faq_build))
+    monkeypatch.setattr(QuestionRouter, "build", classmethod(failing_router_build))
+
+    fake = FakeGenai([text_turn("안녕하세요")])
+    app.dependency_overrides[get_genai_client] = lambda: fake
+    try:
+        with TestClient(app) as test_client:
+            response = test_client.post(
+                "/chat/stream",
+                json={"message": "안녕"},
+                headers={"Authorization": f"Bearer {make_token()}"},
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    events = _parse_events(response.text)
+    route = next(data for name, data in events if name == "route")
+    assert route["route"] == "general"
+    assert route["reason"] == "no-router"

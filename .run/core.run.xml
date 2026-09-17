@@ -2,8 +2,13 @@
   <configuration default="false" name="core (8080)" type="ShConfigurationType">
     <!-- core 가 두 번 뜨면 두 번째 인스턴스가 포트 바인딩에 실패하면서도 종료 훅에서
          create-drop 의 DROP 을 실행해, 살아 있는 인스턴스의 테이블까지 날려버린다.
-         그래서 Spring 이 뜨기 전에 8080 을 먼저 확인하고 막는다. -->
-    <option name="SCRIPT_TEXT" value="if lsof -ti tcp:8080 >/dev/null 2>&amp;1; then echo; echo '이미 8080 에서 core 가 실행 중입니다. 중복 실행하면 DB 가 초기화됩니다.'; echo '실행 중인 core 를 먼저 멈춘 뒤 다시 누르세요.'; echo; exit 1; fi; infisical run --env=dev -- ./gradlew bootRun --console=plain" />
+         그래서 Spring 이 뜨기 전에 8080 을 먼저 확인하고 막는다.
+
+         EXECUTE_SCRIPT_FILE 은 false 여야 한다. true 면 아래 SCRIPT_TEXT 대신
+         SCRIPT_PATH 의 파일을 실행하는데, 거기에 run.sh 가 잡히면 이 구성이 core
+         하나가 아니라 전체 스택을 띄운다. IDE 에서 구성을 열었다 저장하면 이 값이
+         바뀔 수 있으니 확인할 것. -->
+    <option name="SCRIPT_TEXT" value="if lsof -ti tcp:8080 &gt;/dev/null 2&gt;&amp;1; then echo; echo '이미 8080 에서 core 가 실행 중입니다. 중복 실행하면 DB 가 초기화됩니다.'; echo '실행 중인 core 를 먼저 멈춘 뒤 다시 누르세요.'; echo; exit 1; fi; infisical run --env=dev -- ./gradlew bootRun --console=plain" />
     <option name="INDEPENDENT_SCRIPT_PATH" value="true" />
     <option name="SCRIPT_PATH" value="" />
     <option name="SCRIPT_OPTIONS" value="" />

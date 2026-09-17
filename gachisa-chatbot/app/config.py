@@ -16,6 +16,10 @@ class Settings(BaseSettings):
     # 무료 티어 기준으로 고른다. 3.8/3.7 flash는 무료 티어에서 503(혼잡)이 잦아 기본에서 뺐다.
     # 더 아끼려면 gemini-3.5-flash-lite.
     gemini_model: str = "gemini-3.5-flash"
+    # 임베딩은 생성 모델과 별도 쿼터를 쓴다(무료 티어: 분당 100, 하루 1000).
+    # 한도는 모델마다 따로라, 소진되면 이 값을 바꿔 당장 급한 불을 끌 수 있다.
+    # 다만 모델이 다르면 벡터 공간이 달라져 임계값과 기준선을 다시 재야 한다.
+    gemini_embed_model: str = "gemini-embedding-001"
     gemini_max_output_tokens: int = 4096
 
     # Gemini 무료 티어는 모델당 분당 5회, 하루 20회를 팀 전체가 나눠 쓴다.

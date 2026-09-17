@@ -2,6 +2,8 @@ from types import SimpleNamespace
 
 from google.genai import types
 
+from app.router import Route, RouteDecision
+
 
 def text_part(text: str) -> types.Part:
     return types.Part.from_text(text=text)
@@ -78,3 +80,45 @@ class FakeFaq:
     async def search(self, query: str, top_k: int = 3) -> list[dict]:
         self.queries.append(query)
         return self._results[:top_k]
+
+    def search_with_vector(self, query_vector: list[float], top_k: int = 3) -> list[dict]:
+        self.queries.append(f"<vector:{len(query_vector)}>")
+        return self._results[:top_k]
+
+
+class FakeEmbedClient:
+    """client.aio.models.embed_content만 흉내 내는 스텁.
+
+    텍스트별로 돌려줄 벡터를 미리 정해 둔다. 정규화는 embed_queries가 하므로
+    여기서는 방향만 맞춰 주면 된다.
+    """
+
+    def __init__(self, vectors: dict[str, list[float]], default: list[float] | None = None) -> None:
+        self._vectors = vectors
+        self._default = default or [0.0, 0.0, 0.0, 1.0]
+        self.embedded: list[str] = []
+        self.aio = SimpleNamespace(models=SimpleNamespace(embed_content=self._embed))
+        self.fail = False
+
+    async def _embed(self, *, model, contents, config):
+        if self.fail:
+            raise RuntimeError("임베딩 실패")
+        self.embedded.extend(contents)
+        return SimpleNamespace(
+            embeddings=[
+                SimpleNamespace(values=self._vectors.get(text, self._default))
+                for text in contents
+            ]
+        )
+
+
+class FakeRouter:
+    """언제나 정해진 경로를 돌려주는 라우터 스텁. 테스트가 임베딩 API를 타지 않게 한다."""
+
+    def __init__(self, decision: RouteDecision | None = None) -> None:
+        self._decision = decision if decision is not None else RouteDecision(Route.GENERAL, "stub")
+        self.seen: list[tuple[str, bool]] = []
+
+    async def classify(self, message: str, *, has_image: bool = False) -> RouteDecision:
+        self.seen.append((message, has_image))
+        return self._decision

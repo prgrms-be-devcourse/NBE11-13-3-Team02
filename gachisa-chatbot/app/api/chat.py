@@ -16,7 +16,10 @@ from pydantic.alias_generators import to_camel
 from app.agent import run_agent
 from app.config import Settings, get_settings
 from app.rag import FaqIndex
+from app import prompts
+from app.quality import QualityMetrics
 from app.rate_limit import ChatUsageLimiter, DailyBudgetExceeded, RateLimitExceeded
+from app.router import QuestionRouter
 from app.security import CurrentUser, CurrentUserDep
 from app.spring_client import SpringClientDep
 
@@ -37,6 +40,21 @@ def get_faq_index(request: Request) -> FaqIndex:
 
 
 FaqDep = Annotated[FaqIndex, Depends(get_faq_index)]
+
+
+def get_question_router(request: Request) -> QuestionRouter | None:
+    """기동 때 예시 임베딩이 실패했으면 None 이다. run_agent 가 일반 경로로 흘린다."""
+    return request.app.state.question_router
+
+
+QuestionRouterDep = Annotated[QuestionRouter | None, Depends(get_question_router)]
+
+
+def get_quality(request: Request) -> QualityMetrics:
+    return request.app.state.quality
+
+
+QualityDep = Annotated[QualityMetrics, Depends(get_quality)]
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 
 
@@ -145,6 +163,8 @@ async def stream_chat(
     spring: SpringClientDep,
     client: GenaiDep,
     faq: FaqDep,
+    question_router: QuestionRouterDep,
+    quality: QualityDep,
     settings: SettingsDep,
     limiter: UsageLimiterDep,
     _rate_limit: RateLimitDep,
@@ -164,6 +184,8 @@ async def stream_chat(
                 message=payload.message,
                 history=[m.model_dump() for m in payload.history],
                 image=(payload.image.decode(), payload.image.mime_type) if payload.image else None,
+                router=question_router,
+                quality=quality,
             )
             async for event, data in agent_events:
                 if await request.is_disconnected():
@@ -275,3 +297,75 @@ async def get_admin_usage(
             for row in rows
         ],
     )
+
+
+class QualityResponse(BaseModel):
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    total_messages: int
+    routes: dict[str, int]
+    reasons: dict[str, int]
+    faq_miss: int
+    generation_calls: int
+    calls_per_message: float
+    faq_ratio: float
+    prompts: list[str]
+
+
+@router.get("/admin/quality")
+async def get_quality_metrics(
+    _admin: AdminUserDep, quality: QualityDep
+) -> QualityResponse:
+    """라우팅 품질 지표를 본다(관리자 전용).
+
+    평가셋은 배포 전에 재는 도구다. 실제 질문이 평가셋과 다르게 생겼는지, 라우팅이
+    운영에서도 기대대로 도는지는 여기서만 보인다. 특히 볼 것:
+
+      faqRatio         호출을 아낀 비율. 평가셋에서는 24%였다. 크게 낮으면 실제
+                       질문 분포가 평가셋과 다르다는 뜻이다
+      reasons          low-score 가 늘면 예시가 실제 질문을 못 따라가고 있다
+      faqMiss          FAQ 로 보냈는데 근거가 없던 횟수. 높으면 FAQ 문서가 부족하다
+      callsPerMessage  무료 한도와 직결된다
+      prompts          이 숫자들이 어느 프롬프트에서 나왔는지
+
+    집계는 프로세스 메모리에 있어 재시작하면 0부터 다시 쌓인다.
+    """
+    snapshot = await quality.snapshot()
+    return QualityResponse(
+        total_messages=snapshot.total_messages,
+        routes=snapshot.routes,
+        reasons=snapshot.reasons,
+        faq_miss=snapshot.faq_miss,
+        generation_calls=snapshot.generation_calls,
+        calls_per_message=round(snapshot.calls_per_message, 2),
+        faq_ratio=round(snapshot.faq_ratio, 3),
+        prompts=snapshot.prompts,
+    )
+
+
+class PromptInfo(BaseModel):
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    name: str
+    version: str
+    digest: str
+    changelog: str
+
+
+@router.get("/admin/prompts")
+async def get_prompts(_admin: AdminUserDep) -> list[PromptInfo]:
+    """지금 돌고 있는 프롬프트의 버전과 digest(관리자 전용).
+
+    운영에서 이상한 답을 발견했을 때, 그 답이 어느 프롬프트에서 나왔는지 대조하는
+    용도다. digest 는 파일 내용의 해시라 손댈 수 없다 — 누군가 프롬프트를 고치고
+    버전을 안 올렸어도 digest 는 달라진다.
+    """
+    return [
+        PromptInfo(
+            name=p.name,
+            version=p.version,
+            digest=p.digest,
+            changelog=prompts.CHANGELOG.get((p.name, p.version), ""),
+        )
+        for p in prompts.all_prompts()
+    ]

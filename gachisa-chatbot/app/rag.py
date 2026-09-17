@@ -7,10 +7,14 @@ from typing import Any
 
 from google.genai import types
 
+from app.config import get_settings
+
 logger = logging.getLogger(__name__)
 
 FAQ_DIR = Path(__file__).parent / "faq"
-EMBED_MODEL = "gemini-embedding-001"
+# 임베딩 모델은 설정에서 온다(GEMINI_EMBED_MODEL). 임포트 시점이 아니라 호출 때
+# 읽는다 - 모듈을 불러오는 것만으로 설정이 필요해지면, 설정 없이 임포트하는 경로
+# (테스트 수집, 도구 스크립트)가 전부 깨진다.
 # 3072차원 전체는 이 정도 규모에 과하다. 축소해도 검색 품질 차이가 거의 없다.
 EMBED_DIM = 768
 
@@ -37,7 +41,7 @@ def load_chunks(directory: Path = FAQ_DIR) -> list[FaqChunk]:
 
 async def _embed(client: Any, texts: list[str], task_type: str) -> list[list[float]]:
     response = await client.aio.models.embed_content(
-        model=EMBED_MODEL,
+        model=get_settings().gemini_embed_model,
         contents=texts,
         config=types.EmbedContentConfig(
             task_type=task_type, output_dimensionality=EMBED_DIM
@@ -50,6 +54,16 @@ async def _embed(client: Any, texts: list[str], task_type: str) -> list[list[flo
 def _normalize(vector: list[float]) -> list[float]:
     norm = math.sqrt(sum(v * v for v in vector))
     return [v / norm for v in vector] if norm else vector
+
+
+async def embed_queries(client: Any, texts: list[str]) -> list[list[float]]:
+    """질문 쪽 임베딩. 라우터와 FAQ 검색이 같은 표현 공간을 쓰도록 한곳에 둔다."""
+    return await _embed(client, texts, "RETRIEVAL_QUERY")
+
+
+def cosine(a: list[float], b: list[float]) -> float:
+    """둘 다 정규화된 벡터라 내적이 곧 코사인 유사도다."""
+    return sum(x * y for x, y in zip(a, b, strict=True))
 
 
 class FaqIndex:
@@ -76,10 +90,18 @@ class FaqIndex:
         return len(self._chunks)
 
     async def search(self, query: str, top_k: int = 3) -> list[dict[str, Any]]:
-        [query_vector] = await _embed(client=self._client, texts=[query], task_type="RETRIEVAL_QUERY")
+        [query_vector] = await embed_queries(self._client, [query])
+        return self.search_with_vector(query_vector, top_k)
+
+    def search_with_vector(self, query_vector: list[float], top_k: int = 3) -> list[dict[str, Any]]:
+        """이미 뽑아둔 질문 벡터로 검색한다.
+
+        라우터가 분류하려고 같은 문장을 이미 임베딩했으므로, 그 벡터를 넘겨받아
+        임베딩 호출을 한 번 아낀다. 둘 다 RETRIEVAL_QUERY라 같은 표현 공간이다.
+        """
         scored = sorted(
             (
-                (sum(q * v for q, v in zip(query_vector, vector, strict=True)), chunk)
+                (cosine(query_vector, vector), chunk)
                 for vector, chunk in zip(self._vectors, self._chunks, strict=True)
             ),
             key=lambda pair: pair[0],

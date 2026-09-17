@@ -18,6 +18,9 @@ export default defineConfig({
         changeOrigin: true,
       },
       // 챗봇은 별도 FastAPI 서버(8000). SSE 스트림을 Spring을 거치지 않고 직접 받는다.
+      //
+      // 기본값은 로컬 실행용이다. 도커로 띄우면 컨테이너 안의 localhost 가 컨테이너
+      // 자신이라 닿지 않으므로, docker-compose 가 서비스 이름(chatbot:8000)을 넣어 준다.
       '/chat': {
         target: process.env.VITE_CHAT_PROXY_TARGET || 'http://localhost:8000',
         changeOrigin: true,
