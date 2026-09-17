@@ -47,14 +47,14 @@ public class QueueLoadTestFixtureController {
 
         for (int index = 1; index <= request.userCount(); index++) {
             String email = request.emailPrefix() + "-" + index + "@test.local";
-            buyers.add(User.builder()
-                    .email(email)
-                    .password(encodedPassword)
-                    .name("대기열부하테스트" + index)
-                    .role(UserRole.ROLE_BUYER)
-                    .provider(UserProvider.LOCAL)
-                    .createdAt(now)
-                    .build());
+            buyers.add(User.of(
+                    email,
+                    encodedPassword,
+                    "대기열부하테스트" + index,
+                    UserRole.ROLE_BUYER,
+                    UserProvider.LOCAL,
+                    null,
+                    now));
         }
 
         List<User> savedBuyers = userRepository.saveAll(buyers);

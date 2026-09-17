@@ -12,6 +12,8 @@ import com.gachisa.payment.client.PgClient
 import com.gachisa.payment.client.dto.PgCancellationResult
 import com.gachisa.payment.dto.RefundResponse
 import com.gachisa.payment.entity.RefundStatus
+import com.gachisa.payment.metric.PaymentMetrics
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import com.gachisa.payment.service.dto.RefundPreparation
 import java.time.LocalDateTime
 import org.junit.jupiter.api.BeforeEach
@@ -38,11 +40,14 @@ class RefundServiceTest {
     @Mock
     lateinit var pgClient: PgClient
 
+    lateinit var paymentMetrics: PaymentMetrics
+
     private lateinit var refundService: RefundService
 
     @BeforeEach
     fun setUp() {
-        refundService = RefundService(refundStateService, refundCompletionService, pgClient)
+        paymentMetrics = PaymentMetrics(SimpleMeterRegistry())
+        refundService = RefundService(refundStateService, refundCompletionService, pgClient, paymentMetrics)
     }
 
     @Test

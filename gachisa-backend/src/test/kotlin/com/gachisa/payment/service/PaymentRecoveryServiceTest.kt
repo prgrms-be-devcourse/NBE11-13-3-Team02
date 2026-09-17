@@ -8,6 +8,7 @@ import com.gachisa.payment.dto.PaymentResponse
 import com.gachisa.payment.entity.PaymentAttemptStatus
 import com.gachisa.payment.entity.PaymentMethod
 import com.gachisa.payment.entity.PaymentStatus
+import com.gachisa.payment.metric.PaymentMetrics
 import com.gachisa.payment.service.dto.RecoveryPreparation
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
@@ -25,8 +26,9 @@ import java.time.LocalDateTime
 class PaymentRecoveryServiceTest {
     @Mock private lateinit var recoveryStateService: PaymentRecoveryStateService
     @Mock private lateinit var pgClient: PgClient
+    @Mock private lateinit var paymentMetrics: PaymentMetrics
     private lateinit var recoveryService: PaymentRecoveryService
-    @BeforeEach fun setUp() { recoveryService = PaymentRecoveryService(recoveryStateService, pgClient) }
+    @BeforeEach fun setUp() { recoveryService = PaymentRecoveryService(recoveryStateService, pgClient, paymentMetrics) }
     @Test fun recoverQueriesTossAndAppliesActualStatus() {
         val result = queryResult("DONE")
         given(recoveryStateService.prepare(1L)).willReturn(RecoveryPreparation(1L, "payment-key", true, null))

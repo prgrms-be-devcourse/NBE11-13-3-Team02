@@ -9,6 +9,7 @@ import com.gachisa.queue.dto.QueueState
 import com.gachisa.queue.dto.QueueStatusResponse
 import com.gachisa.queue.dto.QueueTokenResponse
 import com.gachisa.queue.event.QueueAdmissionExpiredEvent
+import com.gachisa.queue.metric.PaymentQueueMetrics
 import com.gachisa.queue.repository.QueueRedisRepository
 import org.springframework.context.ApplicationEventPublisher
 import org.springframework.stereotype.Service
@@ -24,10 +25,13 @@ class QueueService(
     private val groupBuyService: GroupBuyService,
     private val timeProvider: TimeProvider,
     private val eventPublisher: ApplicationEventPublisher,
+    private val paymentQueueMetrics: PaymentQueueMetrics,
 ) {
     fun issueToken(groupBuyId: Long, userId: Long): QueueTokenResponse {
         val groupBuy = getOpenGroupBuy(groupBuyId)
-        queueRepository.enqueue(groupBuyId, userId, UUID.randomUUID().toString())
+        if (queueRepository.enqueue(groupBuyId, userId, UUID.randomUUID().toString())) {
+            paymentQueueMetrics.record("enqueued", 1.0)
+        }
         admitAvailable(groupBuy)
         val status = getStatusInternal(groupBuyId, userId)
         return QueueTokenResponse(queueRepository.getToken(groupBuyId, userId)!!, status.status, status.position, status.admissionExpiresAt)
@@ -51,9 +55,15 @@ class QueueService(
     fun bindPaymentAttempt(groupBuyId: Long, userId: Long, paymentAttemptId: Long) = queueRepository.bindPaymentAttempt(groupBuyId, userId, paymentAttemptId)
     fun startConfirmation(groupBuyId: Long, userId: Long) {
         if (!queueRepository.startConfirmation(groupBuyId, userId, nowInstant())) throw CustomException(ErrorCode.QUEUE_ADMISSION_EXPIRED)
+        paymentQueueMetrics.record("confirmation_started", 1.0)
     }
-    fun confirmationFailed(groupBuyId: Long, userId: Long) = queueRepository.requeueConfirmation(groupBuyId, userId)
-    fun completeAdmission(groupBuyId: Long, userId: Long) = queueRepository.complete(groupBuyId, userId)
+    fun confirmationFailed(groupBuyId: Long, userId: Long) {
+        if (queueRepository.requeueConfirmation(groupBuyId, userId)) paymentQueueMetrics.record("requeued_confirmation", 1.0)
+    }
+    fun completeAdmission(groupBuyId: Long, userId: Long) {
+        queueRepository.complete(groupBuyId, userId)
+        paymentQueueMetrics.record("completed", 1.0)
+    }
 
     fun processAllQueues() {
         queueRepository.getGroupBuyIds().forEach { groupBuyId ->
@@ -66,12 +76,22 @@ class QueueService(
     }
 
     private fun processExpired(groupBuy: GroupBuyQueueInfo) {
-        queueRepository.requeueExpired(groupBuy.groupBuyId(), nowInstant()).forEach { expired ->
+        val expiredAdmissions = queueRepository.requeueExpired(groupBuy.groupBuyId(), nowInstant())
+        paymentQueueMetrics.record("expired", expiredAdmissions.size.toDouble())
+        expiredAdmissions.forEach { expired ->
             expired.paymentAttemptId?.let { eventPublisher.publishEvent(QueueAdmissionExpiredEvent(it)) }
         }
     }
 
-    private fun admitAvailable(groupBuy: GroupBuyQueueInfo) = queueRepository.admit(groupBuy.groupBuyId(), groupBuy.remainingCount(), ADMISSION_BATCH_SIZE, nowInstant().plus(ADMISSION_TIMEOUT))
+    private fun admitAvailable(groupBuy: GroupBuyQueueInfo) {
+        val admitted = queueRepository.admit(
+            groupBuy.groupBuyId(),
+            minOf(groupBuy.remainingCount(), MAX_CONCURRENT_PAYMENT_ADMISSIONS),
+            ADMISSION_BATCH_SIZE,
+            nowInstant().plus(ADMISSION_TIMEOUT),
+        )
+        paymentQueueMetrics.record("admitted", admitted.toDouble())
+    }
 
     private fun getStatusInternal(groupBuyId: Long, userId: Long): QueueStatusResponse {
         val expiresAt = queueRepository.getAdmissionExpiresAt(groupBuyId, userId)
@@ -96,6 +116,7 @@ class QueueService(
 
     companion object {
         private val ADMISSION_TIMEOUT: Duration = Duration.ofMinutes(10)
+        private const val MAX_CONCURRENT_PAYMENT_ADMISSIONS = 10
         private const val ADMISSION_BATCH_SIZE = 10
         private val SEOUL: ZoneId = ZoneId.of("Asia/Seoul")
     }

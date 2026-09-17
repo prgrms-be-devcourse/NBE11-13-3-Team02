@@ -16,6 +16,7 @@ import com.gachisa.payment.entity.PaymentAttemptStatus
 import com.gachisa.payment.entity.PaymentStatus
 import com.gachisa.payment.repository.PaymentAttemptRepository
 import com.gachisa.payment.repository.PaymentRepository
+import com.gachisa.payment.metric.PaymentMetrics
 import com.gachisa.queue.service.QueueService
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
@@ -33,6 +34,7 @@ class PaymentService(
     private val timeProvider: TimeProvider,
     private val queueService: QueueService,
     private val orderService: OrderService,
+    private val paymentMetrics: PaymentMetrics,
 ) {
     companion object {
         private val PAYMENT_TIMEOUT: Duration = Duration.ofMinutes(10)
@@ -121,6 +123,7 @@ class PaymentService(
 
         val preparation = confirmationStateService.prepare(paymentAttemptId, request)
         if (!preparation.requestRequired) {
+            paymentMetrics.recordPaymentConfirmation("idempotent")
             val existingResponse = preparation.existingResponse!!
             if (existingResponse.paymentStatus == PaymentStatus.PAID) {
                 queueService.completeAdmission(participation.groupBuyId(), userId)
@@ -129,22 +132,25 @@ class PaymentService(
         }
 
         try {
-            val result = pgClient.confirm(
+            val result = paymentMetrics.recordPaymentConfirmationTime { pgClient.confirm(
                 preparation.paymentKey,
                 preparation.pgOrderId,
                 preparation.amount,
                 preparation.pgIdempotencyKey,
                 preparation.paymentMethod,
-            )
+            ) }
             val response = confirmationStateService.complete(paymentAttemptId, result)
             queueService.completeAdmission(participation.groupBuyId(), userId)
+            paymentMetrics.recordPaymentConfirmation("success")
             return response
         } catch (exception: CustomException) {
             if (exception.getErrorCode() == ErrorCode.PAYMENT_GATEWAY_REJECTED) {
                 confirmationStateService.fail(paymentAttemptId, exception.getErrorCode())
                 queueService.confirmationFailed(participation.groupBuyId(), userId)
+                paymentMetrics.recordPaymentConfirmation("rejected")
             } else {
                 confirmationStateService.keepProcessing(paymentAttemptId, exception.getErrorCode())
+                paymentMetrics.recordPaymentConfirmation("processing")
             }
             throw exception
         }

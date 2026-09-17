@@ -25,6 +25,8 @@ import com.gachisa.payment.entity.PaymentMethod
 import com.gachisa.payment.entity.PaymentStatus
 import com.gachisa.payment.repository.PaymentAttemptRepository
 import com.gachisa.payment.repository.PaymentRepository
+import com.gachisa.payment.metric.PaymentMetrics
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import com.gachisa.payment.service.dto.ConfirmationPreparation
 import com.gachisa.queue.service.QueueService
 import java.time.LocalDateTime
@@ -55,13 +57,15 @@ class PaymentServiceTest {
     @Mock lateinit var timeProvider: TimeProvider
     @Mock lateinit var queueService: QueueService
     @Mock lateinit var orderService: OrderService
+    private lateinit var paymentMetrics: PaymentMetrics
     private lateinit var paymentService: PaymentService
 
     @BeforeEach
     fun setUp() {
+        paymentMetrics = PaymentMetrics(SimpleMeterRegistry())
         paymentService = PaymentService(paymentRepository, attemptRepository,
                 participationService, amountCalculator, pgClient,
-                confirmationStateService, timeProvider, queueService, orderService)
+                confirmationStateService, timeProvider, queueService, orderService, paymentMetrics)
     }
 
     @Test

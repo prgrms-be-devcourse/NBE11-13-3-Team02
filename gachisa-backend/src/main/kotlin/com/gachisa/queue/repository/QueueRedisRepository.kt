@@ -10,13 +10,15 @@ import java.time.Instant
 
 @Repository
 class QueueRedisRepository(private val redisTemplate: StringRedisTemplate) {
-    fun enqueue(groupBuyId: Long, userId: Long, queueToken: String) {
-        redisTemplate.execute(ENQUEUE_SCRIPT, listOf(waitingKey(groupBuyId), sequenceKey(groupBuyId), tokenKey(groupBuyId), GROUPS_KEY), userId.toString(), queueToken, groupBuyId.toString())
+    fun enqueue(groupBuyId: Long, userId: Long, queueToken: String): Boolean {
+        val result = redisTemplate.execute(ENQUEUE_SCRIPT, listOf(waitingKey(groupBuyId), sequenceKey(groupBuyId), tokenKey(groupBuyId), GROUPS_KEY), userId.toString(), queueToken, groupBuyId.toString())
         refreshTtl(groupBuyId)
+        return result == 1L
     }
-    fun admit(groupBuyId: Long, capacity: Int, batchSize: Int, expiresAt: Instant) {
-        redisTemplate.execute(ADMIT_SCRIPT, listOf(waitingKey(groupBuyId), activeKey(groupBuyId), confirmingKey(groupBuyId)), capacity.toString(), batchSize.toString(), expiresAt.toEpochMilli().toString())
+    fun admit(groupBuyId: Long, capacity: Int, batchSize: Int, expiresAt: Instant): Long {
+        val admitted = redisTemplate.execute(ADMIT_SCRIPT, listOf(waitingKey(groupBuyId), activeKey(groupBuyId), confirmingKey(groupBuyId)), capacity.toString(), batchSize.toString(), expiresAt.toEpochMilli().toString())
         refreshTtl(groupBuyId)
+        return admitted?.size?.toLong() ?: 0
     }
     fun requeueExpired(groupBuyId: Long, now: Instant): List<ExpiredAdmission> {
         val values = redisTemplate.execute(REQUEUE_EXPIRED_SCRIPT, listOf(activeKey(groupBuyId), waitingKey(groupBuyId), sequenceKey(groupBuyId), attemptKey(groupBuyId)), now.toEpochMilli().toString()) ?: emptyList<Any>()
@@ -32,8 +34,10 @@ class QueueRedisRepository(private val redisTemplate: StringRedisTemplate) {
     fun complete(groupBuyId: Long, userId: Long) {
         redisTemplate.execute(COMPLETE_SCRIPT, allKeys(groupBuyId), userId.toString()); refreshTtl(groupBuyId)
     }
-    fun requeueConfirmation(groupBuyId: Long, userId: Long) {
-        redisTemplate.execute(REQUEUE_CONFIRMATION_SCRIPT, listOf(confirmingKey(groupBuyId), waitingKey(groupBuyId), sequenceKey(groupBuyId), attemptKey(groupBuyId)), userId.toString()); refreshTtl(groupBuyId)
+    fun requeueConfirmation(groupBuyId: Long, userId: Long): Boolean {
+        val result = redisTemplate.execute(REQUEUE_CONFIRMATION_SCRIPT, listOf(confirmingKey(groupBuyId), waitingKey(groupBuyId), sequenceKey(groupBuyId), attemptKey(groupBuyId)), userId.toString())
+        refreshTtl(groupBuyId)
+        return result == 1L
     }
     fun bindPaymentAttempt(groupBuyId: Long, userId: Long, paymentAttemptId: Long) { redisTemplate.opsForHash<String, String>().put(attemptKey(groupBuyId), userId.toString(), paymentAttemptId.toString()); refreshTtl(groupBuyId) }
     fun getToken(groupBuyId: Long, userId: Long): String? = redisTemplate.opsForHash<String, String>().get(tokenKey(groupBuyId), userId.toString())
@@ -41,7 +45,13 @@ class QueueRedisRepository(private val redisTemplate: StringRedisTemplate) {
     fun getAdmissionExpiresAt(groupBuyId: Long, userId: Long): Instant? = redisTemplate.opsForZSet().score(activeKey(groupBuyId), userId.toString())?.toLong()?.let { Instant.ofEpochMilli(it) }
     fun isConfirming(groupBuyId: Long, userId: Long): Boolean = redisTemplate.opsForZSet().score(confirmingKey(groupBuyId), userId.toString()) != null
     fun getGroupBuyIds(): Set<String> = redisTemplate.opsForSet().members(GROUPS_KEY) ?: emptySet()
+    fun countWaiting(): Long = countByState(::waitingKey)
+    fun countAdmitted(): Long = countByState(::activeKey)
+    fun countConfirming(): Long = countByState(::confirmingKey)
     fun deleteQueue(groupBuyId: Long) { redisTemplate.delete(allKeys(groupBuyId)); redisTemplate.opsForSet().remove(GROUPS_KEY, groupBuyId.toString()) }
+    private fun countByState(key: (Long) -> String): Long = getGroupBuyIds().sumOf { groupBuyId ->
+        redisTemplate.opsForZSet().zCard(key(groupBuyId.toLong())) ?: 0
+    }
     private fun refreshTtl(groupBuyId: Long) { allKeys(groupBuyId).forEach { redisTemplate.expire(it, QUEUE_IDLE_TTL) } }
     private fun allKeys(groupBuyId: Long) = listOf(waitingKey(groupBuyId), activeKey(groupBuyId), confirmingKey(groupBuyId), tokenKey(groupBuyId), attemptKey(groupBuyId), sequenceKey(groupBuyId))
     private fun waitingKey(groupBuyId: Long) = "queue:waiting:$groupBuyId"

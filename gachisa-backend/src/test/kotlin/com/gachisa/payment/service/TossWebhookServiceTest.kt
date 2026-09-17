@@ -6,6 +6,7 @@ import com.gachisa.payment.client.PgClient
 import com.gachisa.payment.client.dto.PgPaymentQueryResult
 import com.gachisa.payment.dto.TossPaymentWebhookRequest
 import com.gachisa.payment.entity.PaymentMethod
+import com.gachisa.payment.metric.PaymentMetrics
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.BeforeEach
@@ -20,8 +21,9 @@ import org.mockito.junit.jupiter.MockitoExtension
 class TossWebhookServiceTest {
     @Mock private lateinit var pgClient: PgClient
     @Mock private lateinit var webhookStateService: TossWebhookStateService
+    @Mock private lateinit var paymentMetrics: PaymentMetrics
     private lateinit var webhookService: TossWebhookService
-    @BeforeEach fun setUp() { webhookService = TossWebhookService(pgClient, webhookStateService) }
+    @BeforeEach fun setUp() { webhookService = TossWebhookService(pgClient, webhookStateService, paymentMetrics) }
     @Test fun webhookVerifiesPayloadWithTossQueryBeforeApplyingState() {
         val request = request("DONE"); val result = queryResult("DONE")
         given(pgClient.getPayment(PAYMENT_KEY)).willReturn(result)

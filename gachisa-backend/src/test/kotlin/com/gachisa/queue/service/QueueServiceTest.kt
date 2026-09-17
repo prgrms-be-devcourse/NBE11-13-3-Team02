@@ -5,6 +5,7 @@ import com.gachisa.groupbuy.dto.GroupBuyQueueInfo
 import com.gachisa.groupbuy.entity.GroupBuyStatus
 import com.gachisa.groupbuy.service.GroupBuyService
 import com.gachisa.queue.repository.QueueRedisRepository
+import com.gachisa.queue.metric.PaymentQueueMetrics
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.ExtendWith
@@ -21,8 +22,9 @@ class QueueServiceTest {
     @Mock private lateinit var groupBuyService: GroupBuyService
     @Mock private lateinit var timeProvider: TimeProvider
     @Mock private lateinit var eventPublisher: ApplicationEventPublisher
+    @Mock private lateinit var paymentQueueMetrics: PaymentQueueMetrics
     private lateinit var queueService: QueueService
-    @BeforeEach fun setUp() { queueService = QueueService(queueRepository, groupBuyService, timeProvider, eventPublisher) }
+    @BeforeEach fun setUp() { queueService = QueueService(queueRepository, groupBuyService, timeProvider, eventPublisher, paymentQueueMetrics) }
     @Test fun closedGroupBuyQueueIsDeleted() {
         given(queueRepository.getGroupBuyIds()).willReturn(setOf("1"))
         given(groupBuyService.getQueueInfo(1L)).willReturn(GroupBuyQueueInfo(1L, 10, 1, NOW.minusDays(2), NOW.minusDays(1), GroupBuyStatus.SETTLED))
