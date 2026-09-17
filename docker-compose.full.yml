@@ -62,11 +62,18 @@ services:
       context: ./gachisa-frontend
     environment:
       VITE_API_PROXY_TARGET: http://backend:8080
+      # 챗봇은 아직 이 compose 에 없고 호스트에서 따로 돈다. 컨테이너 안의
+      # localhost 는 컨테이너 자신이라, 호스트를 가리키는 이름이 따로 필요하다.
+      VITE_CHAT_PROXY_TARGET: ${VITE_CHAT_PROXY_TARGET:-http://host.docker.internal:8000}
       VITE_TOSS_CLIENT_KEY: ${VITE_TOSS_CLIENT_KEY:-}
       VITE_KAKAO_CLIENT_ID: ${VITE_KAKAO_CLIENT_ID:-}
       VITE_NAVER_CLIENT_ID: ${VITE_NAVER_CLIENT_ID:-}
     ports:
       - "5173:5173"
+    # Docker Desktop(맥·윈도우)은 host.docker.internal 을 기본 제공하지만
+    # 리눅스는 아니다. 이 줄이 있어야 어느 환경에서든 같게 동작한다.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       - backend
 
