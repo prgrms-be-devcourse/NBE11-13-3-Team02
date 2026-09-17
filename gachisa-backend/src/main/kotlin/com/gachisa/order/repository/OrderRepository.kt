@@ -1,9 +1,11 @@
 package com.gachisa.order.repository
 
 import com.gachisa.order.entity.Order
+import jakarta.persistence.LockModeType
 import org.springframework.data.domain.Page
 import org.springframework.data.domain.Pageable
 import org.springframework.data.jpa.repository.JpaRepository
+import org.springframework.data.jpa.repository.Lock
 import org.springframework.data.jpa.repository.Modifying
 import org.springframework.data.jpa.repository.Query
 import org.springframework.data.repository.query.Param
@@ -12,6 +14,11 @@ import java.util.Optional
 
 interface OrderRepository : JpaRepository<Order, Long> {
     fun findByParticipationId(participationId: Long): Optional<Order>
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select o from Order o where o.participationId = :participationId")
+    fun findByParticipationIdForUpdate(@Param("participationId") participationId: Long): Optional<Order>
+
     fun findByPaymentId(paymentId: Long): Optional<Order>
     fun findByOrderNumber(orderNumber: String): Optional<Order>
     fun existsByOrderNumber(orderNumber: String): Boolean

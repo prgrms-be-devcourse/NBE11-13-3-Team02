@@ -110,7 +110,9 @@ foreach ($userCount in $Stages) {
 
     $retryMatch = Select-String -LiteralPath $resultPath -Pattern 'queue_connection_retries\.+:\s+(\d+)' | Select-Object -Last 1
     $retryCount = if ($retryMatch -and $retryMatch.Matches[0].Groups.Count -gt 1) { [int]$retryMatch.Matches[0].Groups[1].Value } else { 0 }
-    Write-Host "정합성 통과(최종 결과): ${userCount}명 → admitted=10, waiting=$($userCount - 10)" -ForegroundColor Green
+    $expectedAdmitted = [Math]::Min($userCount, 10)
+    $expectedWaiting = [Math]::Max($userCount - $expectedAdmitted, 0)
+    Write-Host "정합성 통과(최종 결과): ${userCount}명 → admitted=$expectedAdmitted, waiting=$expectedWaiting" -ForegroundColor Green
     if ($retryCount -gt 0) {
         Write-Host "주의: 첫 연결에서 $retryCount 건이 거부됐지만 재시도 후 모두 성공했습니다. '첫 요청 무오류'는 아닙니다." -ForegroundColor Yellow
     }

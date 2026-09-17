@@ -457,7 +457,58 @@
           "unit": "short",
           "decimals": 0
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "시도" },
+            "properties": [
+              { "id": "color", "value": { "mode": "fixed", "fixedColor": "blue" } }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "서버 도달" },
+            "properties": [
+              { "id": "color", "value": { "mode": "fixed", "fixedColor": "green" } }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "정상 응답" },
+            "properties": [
+              { "id": "color", "value": { "mode": "fixed", "fixedColor": "green" } }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "연결 거부" },
+            "properties": [
+              { "id": "color", "value": { "mode": "thresholds" } },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    { "color": "green", "value": null },
+                    { "color": "red", "value": 1 }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "초기 재시도" },
+            "properties": [
+              { "id": "color", "value": { "mode": "thresholds" } },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    { "color": "green", "value": null },
+                    { "color": "red", "value": 1 }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
       },
       "options": {
         "orientation": "horizontal",
@@ -486,7 +537,7 @@
       },
       "targets": [
         {
-          "expr": "max_over_time(k6_queue_admitted_total[$__range]) and on (testid) topk(1, max_over_time(k6_queue_test_started_timestamp[$__range]))",
+          "expr": "(max_over_time(k6_queue_admitted_total[$__range]) and on (testid) topk(1, max_over_time(k6_queue_test_started_timestamp[$__range]))) or on (testid) (0 * topk(1, max_over_time(k6_queue_test_started_timestamp[$__range])))",
           "legendFormat": "실제 admitted",
           "instant": true,
           "refId": "A"
@@ -498,7 +549,7 @@
           "refId": "B"
         },
         {
-          "expr": "max_over_time(k6_queue_waiting_total[$__range]) and on (testid) topk(1, max_over_time(k6_queue_test_started_timestamp[$__range]))",
+          "expr": "(max_over_time(k6_queue_waiting_total[$__range]) and on (testid) topk(1, max_over_time(k6_queue_test_started_timestamp[$__range]))) or on (testid) (0 * topk(1, max_over_time(k6_queue_test_started_timestamp[$__range])))",
           "legendFormat": "실제 waiting",
           "instant": true,
           "refId": "C"
@@ -544,7 +595,7 @@
       },
       "targets": [
         {
-          "expr": "abs((max_over_time(k6_queue_admitted_total[$__range]) and on (testid) topk(1, max_over_time(k6_queue_test_started_timestamp[$__range]))) + (max_over_time(k6_queue_waiting_total[$__range]) and on (testid) topk(1, max_over_time(k6_queue_test_started_timestamp[$__range]))) - (max_over_time(k6_queue_expected_success_total[$__range]) and on (testid) topk(1, max_over_time(k6_queue_test_started_timestamp[$__range]))))",
+          "expr": "abs(((max_over_time(k6_queue_admitted_total[$__range]) and on (testid) topk(1, max_over_time(k6_queue_test_started_timestamp[$__range]))) or on (testid) (0 * topk(1, max_over_time(k6_queue_test_started_timestamp[$__range])))) + ((max_over_time(k6_queue_waiting_total[$__range]) and on (testid) topk(1, max_over_time(k6_queue_test_started_timestamp[$__range]))) or on (testid) (0 * topk(1, max_over_time(k6_queue_test_started_timestamp[$__range])))) - (max_over_time(k6_queue_expected_success_total[$__range]) and on (testid) topk(1, max_over_time(k6_queue_test_started_timestamp[$__range]))))",
           "instant": true,
           "refId": "A"
         }
@@ -697,6 +748,6 @@
   },
   "timezone": "browser",
   "title": "같이사 | k6 부하 테스트",
-  "uid": null,
+  "uid": "load-test-observability",
   "version": 1
 }

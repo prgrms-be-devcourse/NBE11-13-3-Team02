@@ -1,18 +1,26 @@
 $ErrorActionPreference = 'Stop'
 
 $projectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+
+function Get-GitBash {
+    $candidates = @(
+        'C:\Program Files\Git\bin\bash.exe',
+        'C:\Program Files\Git\usr\bin\bash.exe'
+    )
+    foreach ($candidate in $candidates) {
+        if (Test-Path -LiteralPath $candidate) { return $candidate }
+    }
+    throw 'Git Bash를 찾지 못했습니다. Git for Windows를 설치한 뒤 다시 실행해주세요.'
+}
+
 Push-Location $projectRoot
 try {
-    $runningContainerIds = @(& docker compose -f docker-compose.full.yml ps --status running -q)
-    if ($runningContainerIds.Count -eq 0) {
-        Write-Host 'gachisa-full은 이미 중지되어 있습니다.'
-    } else {
-        # 컨테이너를 삭제(down)하지 않고 중지(stop)만 합니다.
-        # 그래서 Docker Desktop에서 gachisa-full 묶음이 계속 보이고 ▶ 버튼으로 다시 시작할 수 있습니다.
-        & docker compose -f docker-compose.full.yml stop
-        if ($LASTEXITCODE -ne 0) { throw '전체 Docker 환경 종료에 실패했습니다.' }
-        Write-Host 'gachisa-full 전체 Docker 환경을 중지했습니다.' -ForegroundColor Green
-    }
+    # 최신 full compose는 JWT_SECRET을 필수로 검증하므로 시작과 동일하게
+    # backend/frontend의 Infisical 시크릿을 병합한 상태에서 중지합니다.
+    $bash = Get-GitBash
+    & $bash './run-docker-full.sh' stop
+    if ($LASTEXITCODE -ne 0) { throw '전체 Docker 환경 종료에 실패했습니다. infisical login 상태를 확인해주세요.' }
+    Write-Host 'gachisa-full 전체 Docker 환경을 중지했습니다.' -ForegroundColor Green
 } finally {
     Pop-Location
 }
