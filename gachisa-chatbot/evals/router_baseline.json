@@ -1,0 +1,12 @@
+{
+  "맞음": 43,
+  "안전": 6,
+  "틀림": 1,
+  "문항수": 50,
+  "min_score": 0.6,
+  "min_margin": 0.05,
+  "프롬프트": [
+    "agent_system@v1+6e29af6f8497",
+    "faq_system@v1+4a6b41baf0f5"
+  ]
+}

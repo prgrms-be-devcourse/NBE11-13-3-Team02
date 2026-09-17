@@ -428,3 +428,60 @@ def test_관리자는_사용자별_토큰_사용량을_모아_본다(client, mak
 
     assert body["totalInputTokens"] == 300, "전체 합계는 모든 사용자의 누적치를 더한 값이다"
     assert body["totalOutputTokens"] == 60
+
+
+# --- 운영 품질 모니터링 -----------------------------------------------------
+
+
+def test_관리자가_아니면_품질_지표를_볼_수_없다(client, make_token):
+    token = make_token(role="ROLE_BUYER")
+    response = client.get("/chat/admin/quality", headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code == 403
+
+
+def test_대화하면_품질_지표에_경로와_호출수가_쌓인다(client, make_token):
+    fake = FakeGenai([text_turn("네"), text_turn("네")])
+    app.dependency_overrides[get_genai_client] = lambda: fake
+    try:
+        buyer = make_token(user_id=3, name="구매자")
+        for _ in range(2):
+            client.post(
+                "/chat/stream",
+                json={"message": "안녕"},
+                headers={"Authorization": f"Bearer {buyer}"},
+            )
+
+        admin = make_token(user_id=9, name="관리자", role="ROLE_ADMIN")
+        body = client.get(
+            "/chat/admin/quality", headers={"Authorization": f"Bearer {admin}"}
+        ).json()
+    finally:
+        app.dependency_overrides.clear()
+
+    assert body["totalMessages"] == 2
+    # FakeRouter 는 general 을 돌려준다.
+    assert body["routes"] == {"general": 2}
+    assert body["generationCalls"] == 2
+    assert body["callsPerMessage"] == 1.0
+    # 어느 프롬프트에서 나온 숫자인지 남아야 한다.
+    assert body["prompts"] and all("@" in label for label in body["prompts"])
+
+
+def test_관리자가_아니면_프롬프트_버전을_볼_수_없다(client, make_token):
+    token = make_token(role="ROLE_BUYER")
+    response = client.get("/chat/admin/prompts", headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code == 403
+
+
+def test_프롬프트_버전과_digest를_조회한다(client, make_token):
+    admin = make_token(user_id=9, name="관리자", role="ROLE_ADMIN")
+    rows = client.get(
+        "/chat/admin/prompts", headers={"Authorization": f"Bearer {admin}"}
+    ).json()
+
+    names = {row["name"] for row in rows}
+    assert {"agent_system", "faq_system"} <= names
+    for row in rows:
+        assert len(row["digest"]) == 12
+        assert row["version"]
+        assert row["changelog"]

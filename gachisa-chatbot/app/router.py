@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
 
-from app.rag import cosine, embed_queries
+from app.rag import FAQ_DIR, cosine, embed_queries, load_chunks
 
 logger = logging.getLogger(__name__)
 
@@ -47,16 +47,10 @@ ROUTE_TOOLS: dict[Route, tuple[str, ...] | None] = {
 # 각 경로를 대표하는 질문들. 임베딩해 두고 들어온 질문과 유사도를 비교한다.
 # 중심점(평균)이 아니라 개별 문장과의 최댓값을 쓴다. 한 경로 안에서도 질문
 # 형태가 제각각이라 평균을 내면 어느 쪽과도 닮지 않은 벡터가 나온다.
+#
+# FAQ 경로의 예시는 여기 없다. FAQ 문서의 소제목을 그대로 쓴다(faq_exemplars).
+# 카탈로그와 주문은 대응하는 문서가 없어 손으로 적는다.
 EXEMPLARS: dict[Route, tuple[str, ...]] = {
-    Route.FAQ: (
-        "공동구매는 어떻게 진행되나요",
-        "환불 규정이 어떻게 되나요",
-        "목표 인원을 못 채우면 어떻게 되나요",
-        "배송지는 언제 등록하나요",
-        "결제는 어떤 수단으로 할 수 있나요",
-        "참여를 취소할 수 있나요",
-        "공동구매 할인율은 어떻게 정해지나요",
-    ),
     Route.CATALOG: (
         "5만원 이하 공동구매 뭐 있어",
         "지금 모집 중인 상품 보여줘",
@@ -89,17 +83,39 @@ _PERSONAL_PATTERN = re.compile(
 # 두 값은 evals/routing.yaml 50문항을 훑어 정했다(scripts/check_router.py --sweep).
 #
 #   min_score  margin   맞음  안전  틀림
-#        0.70    0.05     33    13     4
-#        0.75    0.02     36    11     3
-#        0.75    0.05     33    15     2   ← 선택
-#        0.80    0.05     27    21     2
+#        0.55    0.02     43     2     5
+#        0.60    0.02     43     2     5
+#        0.60    0.05     43     6     1   ← 선택
+#        0.65    0.05     42     7     1
+#        0.75    0.05     37    12     1
+#        0.80    0.05     32    17     1
 #
-# 0.80에서 0.75로 내리면 적중이 27→33으로 늘면서 잘못된 경로는 2로 그대로다.
-# 더 내리거나 margin을 0.02로 좁히면 적중이 조금 더 오르지만 잘못된 경로가
-# 함께 늘어난다. 안전하게 물러선 것(안전)은 기존 동작이라 손해가 호출 한 번이지만,
-# 잘못된 경로는 답 자체가 나빠지므로 그쪽을 늘리지 않는 선에서 멈춘다.
-MIN_SCORE = 0.75
+# margin 0.05 를 지키는 한 min_score 를 0.55 까지 내려도 잘못된 경로는 1건에서
+# 늘지 않는다. 그 1건은 임계값과 무관한 규칙 판정(adv-05)이다. 반대로 margin 을
+# 0.02 로 좁히면 곧바로 5건으로 뛴다. 오분류를 막는 것은 점수 하한이 아니라
+# 1등과 2등을 가르는 margin 이다.
+#
+# 그래서 margin 은 0.05 로 두고 min_score 는 이득이 평평해지는 0.60 에 둔다.
+# 더 내려도 적중이 오르지 않으므로 여유를 남긴다.
+#
+# 예시를 FAQ 문서에서 뽑기 전에는 0.75 가 최선이었다(37/12/1). 예시가 주제를
+# 다 덮지 못해 FAQ 질문이 0.58~0.68 에 몰렸고, 그 아래로 내리면 관계없는 질문까지
+# 딸려 들어왔다. 예시를 고치자 임계값의 최적점도 함께 움직였다.
+MIN_SCORE = 0.60
 MIN_MARGIN = 0.05
+
+
+def faq_exemplars(directory=FAQ_DIR) -> tuple[str, ...]:
+    """FAQ 문서의 소제목을 FAQ 경로의 예시로 쓴다.
+
+    소제목 하나가 곧 FAQ가 답할 수 있는 질문 하나다("어떤 방법으로 로그인하나요").
+    그래서 "이 질문이 FAQ로 답이 되는가"를 재는 데 이보다 나은 목록이 없다.
+
+    처음에는 예시를 손으로 적었는데, 공동구매·환불 쪽에 쏠려 계정·대기열 주제가
+    통째로 빠졌다. 그 주제의 질문들이 유사도 0.58~0.68로 임계값에 못 미쳐 전부
+    일반 경로로 떨어졌다. 문서에서 뽑으면 문서가 늘어도 예시가 따라간다.
+    """
+    return tuple(chunk.title.split(" > ", 1)[-1] for chunk in load_chunks(directory))
 
 
 @dataclass(frozen=True)
@@ -135,7 +151,8 @@ class QuestionRouter:
 
     @classmethod
     async def build(cls, client: Any, **kwargs: Any) -> "QuestionRouter":
-        pairs = [(route, text) for route, texts in EXEMPLARS.items() for text in texts]
+        pairs = [(Route.FAQ, text) for text in faq_exemplars()]
+        pairs += [(route, text) for route, texts in EXEMPLARS.items() for text in texts]
         vectors = await embed_queries(client, [text for _, text in pairs])
         logger.info("라우터 예시 임베딩 완료: %d개", len(vectors))
         return cls(

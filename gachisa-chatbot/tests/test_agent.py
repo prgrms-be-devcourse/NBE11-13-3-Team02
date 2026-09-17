@@ -3,7 +3,7 @@ import json
 import httpx
 import pytest
 
-from app.agent import MAX_TURNS, run_agent
+from app.agent import FAQ_PROMPT, MAX_TURNS, run_agent
 from app.config import get_settings
 from app.rate_limit import ChatUsageLimiter
 from app.router import Route, RouteDecision
@@ -287,7 +287,12 @@ async def test_FAQ_경로는_생성_모델을_한_번만_부른다(orders_spring
 
     # 기존 경로라면 "도구 고르기" + "답변 만들기"로 2회가 필요하다.
     assert len(client.calls) == 1
-    assert events[-1] == ("metrics", {"route": "faq", "generationCalls": 1})
+    name, data = events[-1]
+    assert name == "metrics"
+    assert data["route"] == "faq"
+    assert data["generationCalls"] == 1
+    # 이 답이 어느 프롬프트에서 나왔는지 되짚을 수 있어야 한다.
+    assert data["prompts"] == [FAQ_PROMPT.label]
 
 
 async def test_FAQ_경로는_도구를_아예_싣지_않는다(orders_spring):

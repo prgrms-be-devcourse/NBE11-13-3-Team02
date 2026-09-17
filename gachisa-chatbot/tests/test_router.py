@@ -8,7 +8,14 @@
 
 import pytest
 
-from app.router import EXEMPLARS, MIN_MARGIN, MIN_SCORE, QuestionRouter, Route
+from app.router import (
+    EXEMPLARS,
+    MIN_MARGIN,
+    MIN_SCORE,
+    QuestionRouter,
+    Route,
+    faq_exemplars,
+)
 from tests.fakes import FakeEmbedClient
 
 FAQ_AXIS = [1.0, 0.0, 0.0, 0.0]
@@ -19,11 +26,16 @@ NOISE_AXIS = [0.0, 0.0, 0.0, 1.0]
 AXIS_OF = {Route.FAQ: FAQ_AXIS, Route.CATALOG: CATALOG_AXIS, Route.ORDER: ORDER_AXIS}
 
 
+def all_exemplars() -> list[tuple[Route, str]]:
+    """FAQ 예시는 문서에서, 나머지는 EXEMPLARS 에서 온다. build() 와 같은 순서."""
+    pairs = [(Route.FAQ, text) for text in faq_exemplars()]
+    pairs += [(route, text) for route, texts in EXEMPLARS.items() for text in texts]
+    return pairs
+
+
 def build_client(query_vectors: dict[str, list[float]]) -> FakeEmbedClient:
     """예시 문장은 각자의 축으로, 질문은 인자로 받은 벡터로 임베딩되게 한다."""
-    vectors = {
-        text: AXIS_OF[route] for route, texts in EXEMPLARS.items() for text in texts
-    }
+    vectors = {text: AXIS_OF[route] for route, text in all_exemplars()}
     return FakeEmbedClient({**vectors, **query_vectors})
 
 
@@ -38,7 +50,7 @@ async def test_예시_임베딩은_기동_시_한_번만_만든다():
 
     await router.classify("아무 질문")
 
-    total_exemplars = sum(len(texts) for texts in EXEMPLARS.values())
+    total_exemplars = len(all_exemplars())
     assert embedded_at_build == total_exemplars
     # 분류는 질문 하나만 추가로 임베딩한다.
     assert len(client.embedded) == total_exemplars + 1

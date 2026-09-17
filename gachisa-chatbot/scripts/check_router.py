@@ -24,6 +24,7 @@ run_eval.py 는 하루 20회 한도에 걸려 완주하지 못한다.
 
 import argparse
 import asyncio
+import json
 import sys
 from collections import Counter
 from pathlib import Path
@@ -36,6 +37,7 @@ from google import genai  # noqa: E402
 
 from app.config import get_settings  # noqa: E402
 from app.rag import embed_queries  # noqa: E402
+from app import prompts  # noqa: E402
 from app.router import MIN_MARGIN, MIN_SCORE, QuestionRouter, Route  # noqa: E402
 
 EVAL_PATH = Path(__file__).resolve().parents[1] / "evals" / "routing.yaml"
@@ -161,11 +163,75 @@ def sweep(exemplars, client, cases, vectors) -> None:
             )
 
 
+BASELINE_PATH = Path(__file__).resolve().parents[1] / "evals" / "router_baseline.json"
+
+# 측정값이 기준선보다 이만큼까지 나빠지는 것은 통과시킨다. 임베딩 모델이
+# 업데이트되면 같은 코드로도 소수점이 흔들리므로, 진짜 회귀만 잡으려면 여유가 필요하다.
+TOLERANCE = 2
+
+
+def check_baseline(rows) -> int:
+    """기준선과 비교해 회귀면 1을 돌려준다. CI 가 이 값으로 PR 을 막는다.
+
+    맞음이 줄거나 틀림이 느는 것만 본다. '안전'은 둘 사이에서 움직이는 값이라
+    따로 보면 같은 변화를 두 번 세게 된다.
+    """
+    if not BASELINE_PATH.exists():
+        print(f"기준선이 없습니다: {BASELINE_PATH}")
+        print("--save-baseline 으로 지금 수치를 기준선으로 저장하세요.")
+        return 1
+
+    baseline = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
+    counts = Counter(v for _, v, _ in rows)
+    problems = []
+
+    if counts["맞음"] < baseline["맞음"] - TOLERANCE:
+        problems.append(f"맞음 {baseline['맞음']} → {counts['맞음']} (기준선보다 낮음)")
+    if counts["틀림"] > baseline["틀림"] + TOLERANCE:
+        problems.append(f"틀림 {baseline['틀림']} → {counts['틀림']} (기준선보다 높음)")
+
+    print()
+    print(f"기준선  맞음 {baseline['맞음']}  틀림 {baseline['틀림']}  (허용 오차 ±{TOLERANCE})")
+    print(f"현재    맞음 {counts['맞음']}  틀림 {counts['틀림']}")
+    if problems:
+        print("\n❌ 라우팅 품질이 기준선보다 나빠졌습니다:")
+        for p in problems:
+            print(f"   {p}")
+        print("\n의도한 변경이면 --save-baseline 으로 기준선을 갱신하고 그 이유를 PR 에 적으세요.")
+        return 1
+    print("✅ 기준선 통과")
+    return 0
+
+
+def save_baseline(rows) -> None:
+    counts = Counter(v for _, v, _ in rows)
+    payload = {
+        "맞음": counts["맞음"],
+        "안전": counts["안전"],
+        "틀림": counts["틀림"],
+        "문항수": len(rows),
+        "min_score": MIN_SCORE,
+        "min_margin": MIN_MARGIN,
+        "프롬프트": [p.label for p in prompts.all_prompts()],
+    }
+    BASELINE_PATH.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    print(f"\n기준선을 저장했습니다: {BASELINE_PATH.name}")
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+
+
 async def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--verbose", action="store_true", help="문항별 결과를 모두 출력")
     parser.add_argument("--sweep", action="store_true", help="임계값을 훑어 비교")
     parser.add_argument("--limit", type=int, default=None)
+    parser.add_argument(
+        "--check-baseline", action="store_true", help="기준선보다 나빠졌으면 실패(CI용)"
+    )
+    parser.add_argument(
+        "--save-baseline", action="store_true", help="현재 수치를 기준선으로 저장"
+    )
     args = parser.parse_args()
 
     cases = yaml.safe_load(EVAL_PATH.read_text(encoding="utf-8"))
@@ -195,7 +261,14 @@ async def main() -> int:
         sweep(router.exemplars, client, cases, vectors)
         print()
 
-    return report(rows)
+    exit_code = report(rows)
+
+    if args.save_baseline:
+        save_baseline(rows)
+        return 0
+    if args.check_baseline:
+        return check_baseline(rows)
+    return exit_code
 
 
 if __name__ == "__main__":
