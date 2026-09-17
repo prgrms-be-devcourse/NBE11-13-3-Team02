@@ -35,7 +35,6 @@ class PaymentConfirmationStateService(
     fun prepare(attemptId: Long, request: PaymentConfirmRequest): ConfirmationPreparation {
         val target = getForUpdate(attemptId)
         validateRequest(target.payment, target.attempt, request)
-
         if (target.attempt.status == PaymentAttemptStatus.PAID) {
             val participation = participationService.getPaymentInfo(target.payment.participationId)
             return ConfirmationPreparation.existing(target.payment, target.attempt, createOrder(target.payment, participation).orderId)

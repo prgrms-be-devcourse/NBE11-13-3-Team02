@@ -37,7 +37,7 @@ class OrderService(
 
         val groupBuy = groupBuyService.getPaymentInfo(command.groupBuyId)
         val product = productService.getProduct(groupBuy.productId())
-        val originalAmount = Math.multiplyExact(product.basePrice(), command.quantity)
+        val originalAmount = Math.multiplyExact(product.basePrice, command.quantity)
         val discountAmount = originalAmount - command.amount
         if (discountAmount < 0) throw CustomException(ErrorCode.PAYMENT_AMOUNT_MISMATCH)
 
@@ -48,11 +48,11 @@ class OrderService(
             paymentId = command.paymentId,
             buyerId = command.buyerId,
             groupBuyId = command.groupBuyId,
-            productId = product.id(),
-            productName = product.name(),
-            productImageUrl = product.imageUrl(),
+            productId = product.id!!,
+            productName = product.name,
+            productImageUrl = product.imageUrl,
             quantity = command.quantity,
-            basePrice = product.basePrice(),
+            basePrice = product.basePrice,
             discountRate = groupBuy.discountRate(),
             discountAmount = discountAmount,
             amount = command.amount,

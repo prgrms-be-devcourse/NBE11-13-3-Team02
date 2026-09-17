@@ -41,8 +41,6 @@ public class SecurityConfig {
                     "/api/auth/oauth/kakao",
                     "/api/auth/oauth/naver",
                     "/api/webhooks/toss/**",
-                    // 서비스 간 호출. 사용자 토큰이 아니라 InternalTokenFilter 가 지킨다.
-                    "/internal/**",
                     "/swagger-ui/**",
                     "/v3/api-docs/**",
                     "/images/**"

@@ -17,7 +17,7 @@ class PaymentAmountCalculator(
         val product = productService.getPaymentInfo(groupBuy.productId())
         val discountMultiplier = BigDecimal.ONE.subtract(groupBuy.discountRate())
 
-        return BigDecimal.valueOf(product.basePrice().toLong())
+        return BigDecimal.valueOf(product.basePrice.toLong())
             .multiply(discountMultiplier)
             .multiply(BigDecimal.valueOf(participation.quantity().toLong()))
             .setScale(0, RoundingMode.HALF_UP)

@@ -1,16 +1,12 @@
 #!/usr/bin/env bash
 # 개발용 전체 실행 스크립트. Ctrl+C 로 전부 함께 종료됩니다.
 #
-# 서비스가 여러 개로 나뉘면서 각각 다른 환경변수를 넘겨야 하는데, 특히
-# JWT_SECRET 과 QUEUE_INTERNAL_TOKEN 은 서비스끼리 값이 같아야 동작합니다.
-#
 # core 는 DB 접속 정보까지 Infisical 에서 받으므로 `infisical run` 으로 감싸 실행합니다
 # (application.yml 의 플레이스홀더에 기본값이 없어 환경변수 없이는 기동하지 않습니다).
-# queue 와 챗봇은 아직 로컬 파일을 쓰므로 .env.local 에서 읽어 넘깁니다.
-# 두 경로 모두 setup.sh 가 Infisical 에서 받아온 같은 JWT_SECRET 을 씁니다.
+# 챗봇은 아직 로컬 파일을 쓰므로 .env.local 에서 읽어 넘깁니다.
 #
 # 사용: ./run.sh            전체 실행
-#       ./run.sh core queue  일부만 실행
+#       ./run.sh core frontend  일부만 실행
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -27,8 +23,8 @@ set -a
 source "$SHARED_ENV"
 set +a
 
-if [ -z "${JWT_SECRET:-}" ] || [ -z "${QUEUE_INTERNAL_TOKEN:-}" ]; then
-  echo ".env.local 에 JWT_SECRET 또는 QUEUE_INTERNAL_TOKEN 이 비어 있습니다. ./setup.sh 를 다시 실행하세요."
+if [ -z "${JWT_SECRET:-}" ]; then
+  echo ".env.local 에 JWT_SECRET 이 비어 있습니다. ./setup.sh 를 다시 실행하세요."
   exit 1
 fi
 
@@ -39,7 +35,7 @@ if ! command -v infisical >/dev/null 2>&1; then
 fi
 
 TARGETS=("$@")
-[ ${#TARGETS[@]} -eq 0 ] && TARGETS=(core queue chatbot frontend)
+[ ${#TARGETS[@]} -eq 0 ] && TARGETS=(core chatbot frontend)
 
 wants() {
   local name="$1"
@@ -79,10 +75,6 @@ if wants core; then
     infisical run --env="$INFISICAL_ENV" --silent -- ./gradlew bootRun --console=plain
 fi
 
-if wants queue; then
-  start queue "$ROOT_DIR/gachisa-queue" ./gradlew bootRun --console=plain
-fi
-
 if wants chatbot; then
   if command -v uv >/dev/null 2>&1 && [ -n "${GEMINI_API_KEY:-}" ]; then
     start chatbot "$ROOT_DIR/gachisa-chatbot" uv run uvicorn app.main:app --port 8000
@@ -97,7 +89,6 @@ fi
 
 echo ""
 echo "core     http://localhost:8080"
-echo "queue    http://localhost:8081"
 echo "chatbot  http://localhost:8000"
 echo "frontend http://localhost:5173"
 echo ""
