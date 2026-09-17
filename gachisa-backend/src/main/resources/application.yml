@@ -34,6 +34,25 @@ spring:
       max-file-size: 10MB
       max-request-size: 10MB
 
+# 500명의 결제 진입 요청이 동시에 도착해도, 처리 대기 중인 연결을 즉시 거절하지 않도록 합니다.
+# 무제한으로 늘리지 않고 부하 테스트 목표의 2배인 1,000으로 제한합니다.
+server:
+  tomcat:
+    accept-count: 1000
+
+management:
+  metrics:
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      show-details: never
+
 file:
   upload-dir: ${FILE_UPLOAD_DIR:./uploads}
 
@@ -66,7 +85,3 @@ logging:
     org.hibernate.SQL: debug
     org.hibernate.orm.jdbc.bind: trace
 
-queue:
-  base-url: ${QUEUE_BASE_URL:http://localhost:8081}
-  # gachisa-queue 의 queue.internal-token 과 동일해야 한다.
-  internal-token: ${QUEUE_INTERNAL_TOKEN:local-internal-token}

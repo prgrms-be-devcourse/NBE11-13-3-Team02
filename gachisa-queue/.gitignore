@@ -1,9 +1,0 @@
-.gradle/
-build/
-!gradle/wrapper/gradle-wrapper.jar
-.idea
-*.iml
-.kotlin/
-
-### 로컬 공유 시크릿 (core 의 jwt.secret 과 같은 값) ###
-src/main/resources/application-local.yml

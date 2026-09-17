@@ -1,0 +1,17 @@
+# docker-compose.full.yml에서만 사용하는 설정입니다.
+# 접속 정보와 비밀값은 Compose 환경변수로 전달합니다.
+spring:
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    defer-datasource-initialization: true
+    show-sql: false
+  sql:
+    init:
+      mode: always
+      encoding: UTF-8
+
+logging:
+  level:
+    org.hibernate.SQL: warn
+    org.hibernate.orm.jdbc.bind: warn

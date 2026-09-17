@@ -53,15 +53,6 @@
 | 외부 연동 | Toss Payments(결제), Kakao/Naver OAuth2(소셜 로그인), Google Gemini(챗봇) |
 | 인증 | JWT accessToken(메모리) + httpOnly refreshToken 쿠키, 자체 로그인 + 소셜 로그인 |
 
-### 코루틴을 대기열 서비스에만 적용한 이유
-
-코루틴은 논블로킹 I/O 위에서만 처리량 이득이 있습니다. JPA/JDBC 위에 얹으면 드라이버가
-스레드를 붙잡으므로 `suspend`를 붙여도 동시성은 그대로입니다.
-
-대기열 서비스는 저장소가 Redis뿐이고 Lettuce가 논블로킹이라, 요청 처리 전 구간에 스레드를
-붙잡는 곳이 없습니다. core의 다른 모듈과 결정적으로 다른 점이고, 그래서 여기에 먼저
-적용했습니다. 자세한 내용은 [gachisa-queue/README.md](./gachisa-queue/README.md) 참고.
-
 ## 프로젝트 구조
 
 ```
@@ -74,17 +65,11 @@ NBE11-13-2-Team02/
 │       ├── category/       # 카테고리(트리)
 │       ├── groupbuy/       # 공동구매, 참여 동시성 제어
 │       ├── participation/  # 참여
-│       ├── queue/client/   # 대기열 서비스 호출 클라이언트 (구현은 gachisa-queue)
+│       ├── queue/          # Redis 기반 결제 입장 대기열
 │       ├── payment/        # 결제/환불(Toss), Webhook
 │       ├── order/          # 주문/배송
 │       ├── concurrency/    # (local 전용) 동시성 검증 데모
-│       └── global/         # 공통 설정(Security, 예외 처리, 서비스 간 internal API)
-├── gachisa-queue/      # 결제 대기열 서비스 (Kotlin + 코루틴 + WebFlux)
-│   └── src/main/kotlin/com/gachisa/queue/
-│       ├── api/             # 브라우저용 API, core용 internal API
-│       ├── core/            # 대기열 도메인 로직
-│       ├── redis/           # Lua 스크립트 기반 상태 저장소
-│       └── client/          # core 호출
+│       └── global/         # 공통 설정(Security, 예외 처리)
 ├── gachisa-chatbot/    # RAG 챗봇 서버 (FastAPI + Gemini)
 │   └── app/
 │       ├── agent.py         # 도구 호출 에이전트 루프
@@ -107,16 +92,11 @@ NBE11-13-2-Team02/
 
 | 서비스 | 포트 | 역할 |
 |---|---|---|
-| `gachisa-backend` (core) | 8080 | 회원·상품·공동구매·참여·결제·주문 |
-| `gachisa-queue` | 8081 | 결제 대기열 (Redis) |
+| `gachisa-backend` (core) | 8080 | 회원·상품·공동구매·참여·결제·대기열·주문 |
 | `gachisa-chatbot` | 8000 | 사이트 안내 챗봇 |
 | `gachisa-frontend` | 5173 | React SPA |
 
-프론트엔드는 Vite 프록시로 경로에 따라 각 서비스로 보냅니다
-(`/api/group-buys/*/queue-token` → 8081, `/chat` → 8000, 나머지 `/api` → 8080).
-
-**core ↔ queue는 서로를 HTTP로 호출합니다.** 두 서비스가 같은 `JWT_SECRET`과
-`QUEUE_INTERNAL_TOKEN`을 써야 동작하며, `setup.sh`가 `.env.local`에 맞춰 둡니다.
+프론트엔드는 Vite 프록시로 `/api` 요청을 백엔드(8080), `/chat` 요청을 챗봇(8000)으로 보냅니다.
 
 ## 실행 방법
 
@@ -136,11 +116,11 @@ NBE11-13-2-Team02/
 다음을 자동으로 처리합니다.
 
 - `application-local.yml`(백엔드) 를 예제에서 복사
-- **`.env.local` 생성** — 서비스가 공유해야 하는 `JWT_SECRET`, `QUEUE_INTERNAL_TOKEN`
+- **`.env.local` 생성** — 챗봇과 공유할 `JWT_SECRET`
 - 프론트 `npm install`, 챗봇 `uv sync`
 
-`JWT_SECRET`은 `application-local.yml`의 `jwt.secret`이 원본이고, `setup.sh`가 이를
-`.env.local`로 복사해 대기열·챗봇 서비스에 전달합니다. **값을 바꾸려면 원본을 고치고
+`JWT_SECRET`은 Infisical이 원본이고, `setup.sh`가 이를
+`.env.local`로 복사해 챗봇 서비스에 전달합니다. **값을 바꾸려면 원본을 고치고
 `setup.sh`를 다시 실행**하세요. 설정 파일은 모두 `.gitignore` 대상이라 각자 로컬에만 있습니다.
 
 채워야 하는 값:
@@ -157,8 +137,7 @@ NBE11-13-2-Team02/
 ./run.sh
 ```
 
-core(8080) · queue(8081) · chatbot(8000) · frontend(5173)를 함께 띄우고, 공유 시크릿을
-각 서비스에 넘겨줍니다. `Ctrl+C`로 전부 종료됩니다.
+core(8080) · chatbot(8000) · frontend(5173)를 함께 띄웁니다. `Ctrl+C`로 전부 종료됩니다.
 
 일부만 띄우려면 이름을 넘기세요.
 
@@ -171,17 +150,14 @@ core(8080) · queue(8081) · chatbot(8000) · frontend(5173)를 함께 띄우고
 `.run/`에 실행 구성을 커밋해 두어 팀원 모두가 같은 실행 버튼을 씁니다. 클론 후
 **한 번만** 아래를 해두면 이후로는 버튼만 누르면 됩니다.
 
-1. `./setup.sh` 실행 (공유 시크릿 생성 — 이걸 건너뛰면 queue가 토큰 검증에 실패합니다)
+1. `./setup.sh` 실행
 2. Gradle 툴 윈도우(코끼리 아이콘) → `+` → `gachisa-backend/build.gradle` 링크
-3. 같은 방식으로 `gachisa-queue/build.gradle.kts` 링크
 
-동기화가 끝나면 상단 실행 구성 목록에 세 가지가 나타납니다.
+동기화가 끝나면 상단 실행 구성에서 core를 실행할 수 있습니다.
 
 | 구성 | 실행 대상 |
 | --- | --- |
 | `core (8080)` | core 단독 |
-| `queue (8081)` | 대기열 서비스 단독 |
-| `core + queue` | 둘을 한 번에 |
 
 챗봇(Python)과 프론트(Node)는 IDE 실행 구성 없이 터미널로 띄웁니다.
 
@@ -195,15 +171,11 @@ core(8080) · queue(8081) · chatbot(8000) · frontend(5173)를 함께 띄우고
 
 ### 개별 실행
 
-`./setup.sh`를 한 번 실행했다면 core와 queue는 각자의 `application-local.yml`에서
-공유 시크릿을 읽으므로 환경변수 없이 그대로 뜹니다.
+`./setup.sh`를 한 번 실행했다면 core를 환경변수 없이 실행할 수 있습니다.
 
 ```bash
 # core
 cd gachisa-backend && ./gradlew bootRun
-
-# queue
-cd gachisa-queue && ./gradlew bootRun
 
 # chatbot
 cd gachisa-chatbot && uv run uvicorn app.main:app --port 8000
@@ -212,12 +184,7 @@ cd gachisa-chatbot && uv run uvicorn app.main:app --port 8000
 cd gachisa-frontend && npm run dev
 ```
 
-환경변수를 주면 그쪽이 우선합니다(`run.sh`가 쓰는 경로). 단, core와 queue의 값이
-다르면 결제 대기열이 403으로 막힙니다.
-
-```bash
-JWT_SECRET=... QUEUE_INTERNAL_TOKEN=... ./gradlew bootRun
-```
+환경변수를 주면 그쪽이 우선합니다(`run.sh`가 쓰는 경로).
 
 결제·소셜 로그인까지 테스트하려면 core 실행 전에 환경변수를 넘겨주세요:
 
